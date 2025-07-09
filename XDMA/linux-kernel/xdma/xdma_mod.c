@@ -104,14 +104,14 @@ static const struct pci_device_id pci_ids[] = {
 	{ PCI_DEVICE(0x10ee, 0x4B28), },
 
 	{ PCI_DEVICE(0x10ee, 0x2808), },
-
+        //vender/device id确认使用xilinx 0x10ee, 0x16f2
+        { PCI_DEVICE(0x10ee, 0x16f2), },
 #ifdef INTERNAL_TESTING
 	{ PCI_DEVICE(0x1d0f, 0x1042), 0},
 #endif
 	/* aws */
 	{ PCI_DEVICE(0x1d0f, 0xf000), },
 	{ PCI_DEVICE(0x1d0f, 0xf001), },
-
 	{0,}
 };
 MODULE_DEVICE_TABLE(pci, pci_ids);

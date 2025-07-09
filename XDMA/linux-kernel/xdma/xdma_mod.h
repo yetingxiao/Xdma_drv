@@ -70,6 +70,8 @@ struct xdma_cdev {
 	struct xdma_user_irq *user_irq;	/* IRQ value, if needed */
 	struct device *sys_device;	/* sysfs device */
 	spinlock_t lock;
+	//add ycf
+	struct device_info info;
 };
 
 /* XDMA PCIe device specific book-keeping */
