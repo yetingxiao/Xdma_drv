@@ -48,6 +48,7 @@
 
 #include "libxdma.h"
 #include "xdma_thread.h"
+#include "../lib_vi/board_info.h"
 
 #define MAGIC_ENGINE	0xEEEEEEEEUL
 #define MAGIC_DEVICE	0xDDDDDDDDUL

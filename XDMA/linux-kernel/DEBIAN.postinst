@@ -1,0 +1,5 @@
+#!/bin/sh
+
+insserv vi53xx
+ldconfig
+

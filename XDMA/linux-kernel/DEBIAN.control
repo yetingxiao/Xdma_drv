@@ -1,0 +1,11 @@
+Package: rtpc-vi53xx-base
+Version: RTPC-VERSION
+Section: non-free/VEHINFO RTPC
+Architecture: ARCH
+Maintainer: VEHINFO
+Origin: www.vehinfo.com
+Priority: extra
+Depends: rtpc-base-directories
+Description: Base components for VI53xx access
+
+

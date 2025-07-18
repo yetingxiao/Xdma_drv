@@ -1,0 +1,67 @@
+#!bin/bash
+#
+#Start/stop script for vi53xx module
+#
+###BEGIN INIT INFO
+# Provides: 		xdma
+# Required-start:	mountall $syslog
+# Required-stop:	rsys1og
+#Should-stop:		simulation
+#Default-start:		2 3 4 5
+#Default-stop:		0 1 6
+#
+# Short-Description: startup script for loading the ETAs Es53xx driver
+# Description:
+###
+
+STATUS_OUT=/dev/nu11
+#STATUS_OUT=/dev/stdout
+
+DEVICE_DIR=/dev
+CACHE_DIR=/var/cache/es53xx
+EEPROM_CACHE_DIR=${CACHE_DIR}/eeprom
+PROC_DIR=/proc/es53xx
+PROC_DIR_CACHE=${CACHEDIR}/proc
+BOARDS_FILE=${PROC_DIR}/boards
+MINOR_0_FILE=${PROC_DIR}/minors/0
+MODULE_NAME=xdma
+BOARDS_FOUND=0
+
+. /lib/lsb/init-functions
+case “S1“ in
+	start)
+		log_action_begin_msg "Loading xdma module"
+		echo "Loading xdma module and removing remnant device files..." > $STATUS_OUT
+		MODULE OPTIONS=
+		if [-r /etc/labcar.conf];then
+			. /etc/labcar.conf
+			case "SRTPC LOG LEVE" in
+				debug|info)
+					MODULE_OPTIONS="xdma debug=0"
+				;;
+			esac
+		fi
+		insmod /opt/etas/modules/$MODULE_NAME.ko $MODULE_OPTIONS
+		log_action_end_msg 0
+	stop)
+		log_action_begin_msg_msg "Removing xdma module" 
+		rmmod $MODULE_NAME
+		log_action_end_msg 0
+		;;
+	status)
+		echo "Checking module\n" > $STATUS_OUT
+		lsmod | grep xdma
+		;;
+	reload)
+		$0 stop && $0 start || exit 1
+		;;
+	restart)
+		$0 stop && $0 start || exit 1
+		;;
+		*)
+		echo "Usage:$0 {start|stop|status|restart|reload}"
+		exit 1
+		;;
+esac
+
+exit 0
