@@ -4,7 +4,7 @@
 include ../../../defines.mk
 
 
-OBJ= vi53xx_xdma.o es5341_di_cfg.o es5341_do_cfg.o
+OBJ= vi53xx_xdma.o es5341_di_cfg.o es5341_do_cfg.o 
 
 
 INST_HEADER= vi53xx_api.h

@@ -33,6 +33,10 @@
 #define LCR_DLAB_ENABLE  0x80 // DLAB = 1
 #define LCR_DLAB_DISABLE 0x00 // DLAB = 0
 
+// AXI UART 16550 IER位定义 (部分)
+#define UART_IER_RX_DATA_AVAIL 0x01 // Enable receive data available interrupt
+#define UART_IER_TX_EMPTY      0x02 // Enable transmit holding register empty interrupt
+
 // LCR 数据格式位定义 (8N1, 奇校验)
 // 8位数据: 0x03
 // 1停止位: 0x00 (默认)
@@ -58,8 +62,8 @@
 //#define BAUD_RATE 230400
 //#define BAUD_RATE 345600
 //#define BAUD_RATE 390625
-#define BAUD_RATE 781250
-//#define BAUD_RATE 1562500
+//#define BAUD_RATE 781250
+#define BAUD_RATE 1562500
 //#define BAUD_RATE 6250000
 // 计算波特率除数
 // 除数 = UART_CLOCK_FREQ_HZ / (16 * BAUD_RATE)
@@ -180,6 +184,8 @@ void uart_init() {
 
     // 6. 重新使能中断 (如果需要，这里我们只是为了发送数据，可以保持禁用或只使能 THR 空闲中断)
     // write_uart_reg(IER_OFFSET, 0x01); // 示例：使能接收数据可用中断
+	//*(volatile unsigned char *)(uart_regs + IER_OFFSET) = ;
+	write_uart_reg(IER_OFFSET, UART_IER_TX_EMPTY); 
 
     printf("UART initialization complete.\n");
 }

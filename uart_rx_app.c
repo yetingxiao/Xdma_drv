@@ -35,6 +35,8 @@
 #define LCR_DLAB_ENABLE  0x80 // DLAB = 1
 #define LCR_DLAB_DISABLE 0x00 // DLAB = 0
 
+
+
 // LCR 数据格式位定义 (8N1, 奇校验)
 // 8位数据: 0x03
 // 1停止位: 0x00 (默认)
@@ -49,6 +51,12 @@
 
 // IER 寄存器位定义
 #define IER_RX_DATA_AVAIL 0x01 // 接收数据可用中断使能
+// AXI UART 16550 IER位定义 (部分)
+#define UART_IER_RX_DATA_AVAIL 0x01 // Enable receive data available interrupt
+#define UART_IER_TX_EMPTY      0x02 // Enable transmit holding register empty interrupt
+
+#define UART_IER_RX_DATA_AVAIL 0xFE // disable receive data available interrupt
+#define UART_IER_TX_EMPTY      0xFD // disable transmit holding register empty interrupt
 
 // LSR 寄存器位定义
 #define LSR_DR            0x01 // 数据就绪 (Data Ready)
@@ -189,8 +197,8 @@ void uart_init() {
     printf("FCR set to 0x%02X (FIFO enabled, TX/RX FIFO cleared)\n", FCR_FIFO_ENABLE | FCR_RX_FIFO_RESET | FCR_TX_FIFO_RESET);
 
     // 6. 启用接收数据可用中断 (可选，这里我们使用轮询，但启用中断可以用于更复杂的驱动)
-    // write_uart_reg(IER_OFFSET, IER_RX_DATA_AVAIL);
-    // printf("IER set to 0x%02X (Receive Data Available Interrupt Enabled)\n", IER_RX_DATA_AVAIL);
+    write_uart_reg(IER_OFFSET, IER_RX_DATA_AVAIL);
+    printf("IER set to 0x%02X (Receive Data Available Interrupt Enabled)\n", IER_RX_DATA_AVAIL);
 
     printf("UART initialization complete. Waiting for incoming data...\n");
 }

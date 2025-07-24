@@ -17,8 +17,7 @@
 #include <linux/kprobes.h>
 #include <linux/version.h>
 
-int create_board_proc(void);
-int create_instance_board_id_mmap(void);
+int create_boards_info_proc(void);
 int create_proc_device(void *device, const char *name);
 void remove_board_proc(void);
 

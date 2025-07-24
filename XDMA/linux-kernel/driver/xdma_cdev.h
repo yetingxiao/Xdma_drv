@@ -30,6 +30,28 @@
 #define XDMA_MINOR_BASE (0)
 #define XDMA_MINOR_COUNT (255)
 
+enum xpdev_flags_bits {
+	XDF_CDEV_USER,
+	XDF_CDEV_CTRL,
+	XDF_CDEV_XVC,
+	XDF_CDEV_EVENT,
+	XDF_CDEV_SG,
+	XDF_CDEV_BYPASS,
+};
+
+enum cdev_type {
+	CHAR_USER,
+	CHAR_CTRL,
+	CHAR_XVC,
+	CHAR_EVENTS,
+	CHAR_XDMA_H2C,
+	CHAR_XDMA_C2H,
+	CHAR_BYPASS_H2C,
+	CHAR_BYPASS_C2H,
+	CHAR_BYPASS,
+};
+
+
 void xdma_cdev_cleanup(void);
 int xdma_cdev_init(void);
 

@@ -229,7 +229,7 @@ void uart_init() {
 
 // 持续发送数据 "0123456789"
 void send_data() {
-    const char *data_to_send = "0123456789";
+    const char *data_to_send = "0123456789ABCDEF";
     size_t data_len = strlen(data_to_send);
     size_t current_index = 0;
     unsigned int loop_count = 0;
@@ -358,14 +358,14 @@ int main() {
 
     // 清除并使能 UART 接收数据可用中断
     //*(volatile unsigned char *)(uart_regs + IER_OFFSET) = UART_IER_RX_DATA_AVAIL;
-	*(volatile unsigned char *)(uart_regs + IER_OFFSET) = UART_IER_TX_EMPTY;
-    printf("UART TX Data Empty Interrupt enabled.\n");
+	*(volatile unsigned char *)(uart_regs + IER_OFFSET) = UART_IER_TX_EMPTY|UART_IER_RX_DATA_AVAIL;
+    printf("UART TX Data Empty && RX Data Available Interrupt enabled.\n");
 
     // 5. 配置 pollfd 结构体以监听中断事件
     pfd.fd = event_fd;
     pfd.events = POLLIN; // 监听可读事件
 
-    printf("Waiting for UART TX Data Empty interrupt...\n");
+    printf("Waiting for UART TX Data Empty && RX Data Available interrupt...\n");
 
     while (1) {
         // 等待中断，无限等待
@@ -394,6 +394,20 @@ int main() {
                 printf("UART TX Empty interrupt. Can send more data.\n");
                 // 可以在这里写入更多数据到THR
 				send_data();
+            }else if ((iir_val & 0x0F) == 0x04 || (iir_val & 0x0F) == 0x0C) 
+            // 如果是接收数据中断 (IIR bit 0 = 0, bits 3:1 = 010b or 110b for FIFO trigger)
+            { // IIR bits 3:0 for Rx Data Available (0x04 or 0x0C if FIFO enabled)
+                // 读取 UART 接收 FIFO 中的所有数据直到为空
+                while ((*(volatile unsigned char *)(uart_regs + LSR_OFFSET) & 0x01)) { // LSR bit 0 (DR) indicates Data Ready
+                    char received_char = *(volatile unsigned char *)(uart_regs + RBR_THR_OFFSET);
+                    printf("Received char: '%c' (0x%02x)\n", received_char, received_char);
+					//receive_data();
+                }
+            }
+            // TODO: 添加其他中断类型处理，例如 TX Empty 中断
+            else if (1) { 
+                // 其他中断类型...
+                // 可以在这里写入更多数据到THR
             }
             // 其他中断类型...
         }

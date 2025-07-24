@@ -48,7 +48,9 @@
 
 #include "libxdma.h"
 #include "xdma_thread.h"
-#include "../lib/board_info.h"
+//#include "../lib/board_info.h"
+#include "board_inf.h"
+
 
 #define MAGIC_ENGINE	0xEEEEEEEEUL
 #define MAGIC_DEVICE	0xDDDDDDDDUL
@@ -71,8 +73,9 @@ struct xdma_cdev {
 	struct xdma_user_irq *user_irq;	/* IRQ value, if needed */
 	struct device *sys_device;	/* sysfs device */
 	spinlock_t lock;
-	//add ycf
+	//add ycf=======================
 	struct device_info info;
+	//add ycf=======================
 };
 
 /* XDMA PCIe device specific book-keeping */

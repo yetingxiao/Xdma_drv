@@ -9,8 +9,8 @@
 
 // --- XDMA IRQ Block User Interrupt Enable Register 定义 ---
 // 这些偏移量是相对于 /dev/xdmaX_user 文件描述符的。
-// BAR1_FD_OFFSET: BAR1在文件描述符中的起始偏移（通常为 BAR0 的大小，这里假设为 256B）
-#define XDMA_BAR1_FD_OFFSET 0x10000
+// BAR1_FD_OFFSET: BAR1在文件描述符中的起始偏移（通常为 BAR0 的大小，这里假设为 1MB）
+#define XDMA_BAR1_FD_OFFSET 0x100000
 
 // XDMA IRQ Block 内部寄存器偏移 (相对于 IRQ Block 的基地址)
 // 请务必根据你的 XDMA Product Guide (PG195) 或驱动源码核对这些值
@@ -165,7 +165,8 @@ int enable_Xdma_usr_int()
 //#define BAUD_RATE 390625
 //#define BAUD_RATE 781250
 //#define BAUD_RATE 6250000
-#define BAUD_RATE 345600
+//#define BAUD_RATE 345600
+#define BAUD_RATE 115200
 // 计算波特率除数
 // 除数 = UART_CLOCK_FREQ_HZ / (16 * BAUD_RATE)
 #define BAUD_RATE_DIVISOR (UART_CLOCK_FREQ_HZ / (16 * BAUD_RATE))
@@ -307,7 +308,7 @@ int main() {
     int ret;
     char rx_buf[256];
     ssize_t bytes_read;
-	enable_Xdma_usr_int();
+	//enable_Xdma_usr_int();
 
     // 1. 打开 XDMA 用户设备文件 (用于访问BAR0)
     user_fd = open(XDMA_USER_DEV, O_RDWR | O_SYNC);

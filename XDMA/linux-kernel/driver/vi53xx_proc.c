@@ -1,6 +1,7 @@
 #include "vi53xx_proc.h"
 #include  "libxdma.h"
-#include "vi53xx_cndev_core.h"
+//#include "vi53xx_cndev_core.h"
+#include "xdma_cdev.h"
 #include "board_info.h"
 
 static struct proc_dir_entry *parent_dir = NULL;
@@ -71,7 +72,7 @@ ssize_t boards_write(struct file *file, const char __user *buf,
 	return count;
 }
 
-static int maping_show(struct seq_file *m, void *v)
+static int mapping_show(struct seq_file *m, void *v)
 {
 	struct xdma_pci_dev *xpdev;
 	struct xdma_cdev *xcdev;
@@ -89,7 +90,7 @@ static int maping_show(struct seq_file *m, void *v)
 	return 0;
 }
 
-ssize_t maping_write(struct file *file, const char __user *buf,
+ssize_t mapping_write(struct file *file, const char __user *buf,
 				size_t count, loff_t *ppos)
 {
 
@@ -134,7 +135,7 @@ static int device_show(struct seq_file *m, void *v)
 					xcdev->info.board_type
 				);
 
-	seq_printf(m, "Board_id: '%x'\n",
+	seq_printf(m, "Board_id: '%d'\n",
 					xcdev->info.board_id
 				);
 
@@ -145,12 +146,16 @@ ssize_t device_write(struct file *file, const char __user *buf,
 				size_t count, loff_t *ppos)
 {
 	int ret;
+	int ch, dir;
+	unsigned int offset;
 	char k_buf[256] = {0};
 	char cmd[255];
 	int len = MIN(255, count);
+	device_control_state dc;
+	struct xdma_cfg_info *cfg;
 	struct xdma_cdev *xcdev = to_device_file(file);
-	struct xdma_dev *xdev =xcdev->xdev;
-	void *reg_base = xdev->bar[0];
+    struct device_info *info = &xcdev->info;
+	struct xdma_pci_dev  *xpdev= container_of(xcdev, struct xdma_pci_dev, ctrl_cdev);
 
 	if(copy_from_user(k_buf, buf, len))
 		return -EFAULT;
@@ -162,18 +167,37 @@ ssize_t device_write(struct file *file, const char __user *buf,
 	}
 
 	if (strcmp(cmd, "on") == 0) {
-		dbg_init("led_blink = %s\n",cmd);
-		set_led_blink_state(reg_base, DEVICE_LED_BLINK, LED_BLINK_ON);
+		dbg_init("board_id = %d,led_blink = %s\n",info->board_id, cmd);
+		dc.state = 1;
+		info->device_control(info, BLINK, &dc);
 	} else if (strcmp(cmd, "off") == 0) {
-		dbg_init("led_blink = %s\n",cmd);
-		set_led_blink_state(reg_base, DEVICE_LED_BLINK, LED_BLINK_OFF);
+		dbg_init("board_id = %d,led_blink = %s\n",info->board_id, cmd);
+		dc.state = 0;
+		info->device_control(info, BLINK, &dc);	
+	} else if (strcmp(cmd, "dump") == 0) {
+		ret = sscanf(k_buf, "%s %d %d %x", cmd, &ch, &dir, &offset);
+		if (ret == 4) {
+			dbg_init("board_id = %d, channel:%d, dir:%s offset:0x%x\n",info->board_id, ch, dir ? "C2H":"H2C", offset);
+			if ((dir != H2C_DIR) && (dir != C2H_DIR))
+				return len;
+
+			if (ch != CH1)
+				return len;
+
+			cfg = xpdev->dma_cfg[dir]; 
+			dc.ch = ch;
+			dc.dir = dir;
+			dc.offset = offset;
+			dc.pData = cfg[ch-1].pData[0];
+			info->device_control(xcdev->xdev, DUMP, &dc);
+		}
 	}
 
 	return count;
 }
 
 CMD_FILE_OPS(boards);
-CMD_FILE_OPS(maping);
+CMD_FILE_OPS(mapping);
 CMD_FILE_OPS(device);
 
 int create_proc_device(void *device, const char *name)
@@ -189,14 +213,14 @@ int create_proc_device(void *device, const char *name)
 	return 0;
 }
 
-int create_instance_board_id_mmap(void)
+static int create_instance_board_id_mmap(void)
 {
 	if (!parent_dir) {
 		pr_err("create dir %s fail\n", VI53XX_DEV_NAME);
 		return -1;
 	}
 
-	if (!proc_create(VI53XX_DEV_MAPING,  S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH , parent_dir, &maping_fops))
+	if (!proc_create(VI53XX_DEV_MAPING,  S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH , parent_dir, &mapping_fops))
 		goto remove_proc;
 
 	return 0;
@@ -206,7 +230,7 @@ remove_proc:
 	return -1;
 }
 
-int create_board_proc(void)
+static int create_board_proc(void)
 {
 	parent_dir = proc_mkdir(VI53XX_DEV_NAME, NULL);
 	if (!parent_dir) {
@@ -222,6 +246,16 @@ int create_board_proc(void)
 remove_proc:
 	remove_proc_subtree(VI53XX_DEV_NAME, NULL);
 	return -1;
+}
+
+int create_boards_info_proc(void)
+{
+	int ret;
+
+	ret = create_board_proc();
+	ret = create_instance_board_id_mmap();
+
+	return ret;
 }
 
 void  remove_board_proc(void)

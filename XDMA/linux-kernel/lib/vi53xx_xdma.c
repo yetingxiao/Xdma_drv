@@ -72,7 +72,10 @@ static void release_parvar_mat(void)
 		pmt.data = NULL;
 	}
 	
-	Mat_Close(pmt.matfile);
+	if(pmt.matfile){
+		Mat_Close(pmt.matfile);
+		pmt.matfile = NULL;
+	}
 }
 
 static void convert_to_lower(char *str)

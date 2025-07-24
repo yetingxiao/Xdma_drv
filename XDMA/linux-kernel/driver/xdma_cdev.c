@@ -25,17 +25,6 @@ static struct class *g_xdma_class;
 
 struct kmem_cache *cdev_cache;
 
-enum cdev_type {
-	CHAR_USER,
-	CHAR_CTRL,
-	CHAR_XVC,
-	CHAR_EVENTS,
-	CHAR_XDMA_H2C,
-	CHAR_XDMA_C2H,
-	CHAR_BYPASS_H2C,
-	CHAR_BYPASS_C2H,
-	CHAR_BYPASS,
-};
 
 static const char * const devnode_names[] = {
 	XDMA_NODE_NAME "%d_user",
@@ -49,14 +38,7 @@ static const char * const devnode_names[] = {
 	XDMA_NODE_NAME "%d_bypass",
 };
 
-enum xpdev_flags_bits {
-	XDF_CDEV_USER,
-	XDF_CDEV_CTRL,
-	XDF_CDEV_XVC,
-	XDF_CDEV_EVENT,
-	XDF_CDEV_SG,
-	XDF_CDEV_BYPASS,
-};
+
 
 static inline void xpdev_flag_set(struct xdma_pci_dev *xpdev,
 				enum xpdev_flags_bits fbit)
