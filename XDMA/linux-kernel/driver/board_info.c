@@ -4,7 +4,7 @@
 #include <linux/ktime.h>
 #include <linux/delay.h>
 #include "board_info.h"
-//#include "vi53xx_proc.h"
+#include "vi53xx_proc.h"
 
 struct board_info *vi53xx_inca_board_name_list = NULL;
 
@@ -173,14 +173,14 @@ int init_board_info()
 	vi53xx_inca_board_name_list[2].board_name = ES5342;
 	vi53xx_inca_board_name_list[2].count = 0;
 
-//	create_boards_info_proc();
+	create_boards_info_proc();
 
 	return 0;
 }
 
 void board_info_exit()
 {
-//	remove_board_proc();
+	remove_board_proc();
 
 	if (vi53xx_inca_board_name_list) {
 		kfree(vi53xx_inca_board_name_list);
