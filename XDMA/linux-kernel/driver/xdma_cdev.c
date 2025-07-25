@@ -26,6 +26,7 @@ static struct class *g_xdma_class;
 struct kmem_cache *cdev_cache;
 
 
+
 static const char * const devnode_names[] = {
 	XDMA_NODE_NAME "%d_user",
 	XDMA_NODE_NAME "%d_control",

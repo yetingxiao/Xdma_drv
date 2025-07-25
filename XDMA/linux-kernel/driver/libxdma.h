@@ -31,6 +31,21 @@
 #include <linux/kernel.h>
 #include <linux/pci.h>
 #include <linux/workqueue.h>
+//======================================add by ycf 2025.7.25=============================================
+extern struct list_head pcie_device_list;
+#define MAX_EXTRA_ADJ                       (15)
+#define MAX_DESC_NUM                        (64)
+#define DMA_CHANNEL_NUM                     (2)
+#define  H2C_DIR  			                (0)
+#define  C2H_DIR  			                (1)
+#define  CH1                                (1)
+#define  CH2                                (2)
+
+#define  CH1_H2C0                           (0x2000)
+#define  CH1_C2H0                           (0x2000)
+#define  CH2_C2H1                           (0x400000)
+#define  CH2_H2C1                           (0x100)
+//======================================add by ycf 2025.7.25=============================================
 
 /* Add compatibility checking for RHEL versions */
 #if defined(RHEL_RELEASE_CODE)
@@ -579,7 +594,20 @@ struct xdma_user_irq {
 
 	void *dev;
 };
-
+//===================================add by ycf 2025.7.25===============================
+struct xdma_cfg_info {
+	unsigned char          direction;                    /* 0-host2card 1-card2host */
+	unsigned char          SG_desc_num;                  /* Number of descriptors during DMA transfer */
+	unsigned char 	       *pData[MAX_DESC_NUM];         /* Array of data pointers, the pointers point to the transferred data */
+	unsigned int           data_len[MAX_DESC_NUM];       /* An array of data lengths, representing the length of data transmitted by each descriptor */
+	dma_addr_t             data_phy_addr[MAX_DESC_NUM];  /* Array of physical addresses, storing the physical addresses of the transferred data */
+	struct xdma_desc       *pFirst_desc;                 /* pointer to the first descriptor */
+	dma_addr_t             first_desc_phy_addr;          /* physical address of the first descriptor */
+    size_t                 size;
+    int                    channel;
+    u32                    ep_addr;
+};
+//===================================add by ycf 2025.7.25===============================
 /* XDMA PCIe device specific book-keeping */
 #define XDEV_FLAG_OFFLINE	0x1
 struct xdma_dev {

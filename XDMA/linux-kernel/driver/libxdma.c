@@ -31,8 +31,9 @@
 #include "libxdma_api.h"
 #include "cdev_sgdma.h"
 #include "xdma_thread.h"
-
-
+//======================================add by ycf 2025.7.25=============================================
+LIST_HEAD(pcie_device_list);
+//======================================add by ycf 2025.7.25=============================================
 /* Module Parameters */
 static unsigned int poll_mode;
 module_param(poll_mode, uint, 0644);

@@ -51,7 +51,6 @@ enum cdev_type {
 	CHAR_BYPASS,
 };
 
-
 void xdma_cdev_cleanup(void);
 int xdma_cdev_init(void);
 

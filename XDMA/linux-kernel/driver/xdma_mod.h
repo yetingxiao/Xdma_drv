@@ -49,8 +49,7 @@
 #include "libxdma.h"
 #include "xdma_thread.h"
 //#include "../lib/board_info.h"
-#include "board_inf.h"
-
+#include "board_info.h"
 
 #define MAGIC_ENGINE	0xEEEEEEEEUL
 #define MAGIC_DEVICE	0xDDDDDDDDUL
@@ -104,6 +103,10 @@ struct xdma_pci_dev {
 	struct xdma_cdev xvc_cdev;
 
 	void *data;
+	//===================================add by ycf 2025.7.25===============================
+	struct list_head  list;
+	struct xdma_cfg_info  *dma_cfg[2]; /*2 dir*/
+	//===================================add by ycf 2025.7.25===============================
 };
 
 struct cdev_async_io {
