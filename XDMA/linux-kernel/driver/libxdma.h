@@ -45,6 +45,8 @@ extern struct list_head pcie_device_list;
 #define  CH1_C2H0                           (0x2000)
 #define  CH2_C2H1                           (0x400000)
 #define  CH2_H2C1                           (0x100)
+
+#define XDMA_CHANNEL_NUM		            (2)
 //======================================add by ycf 2025.7.25=============================================
 
 /* Add compatibility checking for RHEL versions */
@@ -607,6 +609,17 @@ struct xdma_cfg_info {
     int                    channel;
     u32                    ep_addr;
 };
+
+struct xdma_fops {
+    unsigned int (*read_reg)(void *reg_base, unsigned int offset);
+    unsigned int (*write_reg)(void *reg_base, unsigned int offset, unsigned int val);
+    int (*start)(struct xdma_dev *xdev, unsigned char channel, unsigned char direction);
+    int (*start_desc)(struct xdma_dev *xdev, unsigned char channel, struct xdma_cfg_info *cfg);
+    int (*stop)(struct xdma_dev *xdev, unsigned char channel, unsigned char direction);
+    int (*poll_init)(struct xdma_dev *xdev, int channel, unsigned char direction);
+    void (*create_transfer)(struct xdma_dev *xdev, unsigned char channel, struct xdma_cfg_info *cfg);
+    int (*xdma_mmap)(struct xdma_dev *xdev, void *vm, struct xdma_cfg_info *cfg);
+};
 //===================================add by ycf 2025.7.25===============================
 /* XDMA PCIe device specific book-keeping */
 #define XDEV_FLAG_OFFLINE	0x1
@@ -652,7 +665,11 @@ struct xdma_dev {
 	u32 mask_irq_c2h;
 	struct xdma_engine engine_h2c[XDMA_CHANNEL_NUM_MAX];
 	struct xdma_engine engine_c2h[XDMA_CHANNEL_NUM_MAX];
-
+//===================================add by ycf 2025.7.25===============================	
+	struct xdma_cfg_info C2H_dma_cfg[XDMA_CHANNEL_NUM];
+	struct xdma_cfg_info H2C_dma_cfg[XDMA_CHANNEL_NUM];
+    struct xdma_fops *fops;
+//===================================add by ycf 2025.7.25===============================
 	/* SD_Accel specific */
 	enum dev_capabilities capabilities;
 	u64 feature_id;

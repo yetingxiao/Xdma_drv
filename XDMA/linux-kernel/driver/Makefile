@@ -15,7 +15,7 @@ TARGET_MODULE:=xdma
 ####################### add by ycf
 
 obj-ko := $(TARGET_MODULE).ko
-obj-c := libxdma.c xdma_cdev.c cdev_ctrl.c cdev_events.c cdev_sgdma.c cdev_xvc.c cdev_bypass.c xdma_mod.c xdma_thread.c board_info.c
+obj-c := libxdma.c xdma_cdev.c cdev_ctrl.c cdev_events.c cdev_sgdma.c cdev_xvc.c cdev_bypass.c xdma_mod.c xdma_thread.c board_info.c vi53xx_proc.c vi53xx_xdma_ctrl.c
 obj-tar :=  xdma_module_src.tgz
 INSTALL_SCRIPT = xdma_install
 ########################## add by ycf
@@ -48,7 +48,7 @@ EXTRA_CFLAGS +=   $(CC_ARCH)  -pthread
 ########################## add by ycf
 
 ifneq ($(KERNELRELEASE),)
-	$(TARGET_MODULE)-objs := libxdma.o xdma_cdev.o cdev_ctrl.o cdev_events.o cdev_sgdma.o cdev_xvc.o cdev_bypass.o xdma_mod.o xdma_thread.o board_info.o
+	$(TARGET_MODULE)-objs := libxdma.o xdma_cdev.o cdev_ctrl.o cdev_events.o cdev_sgdma.o cdev_xvc.o cdev_bypass.o xdma_mod.o xdma_thread.o board_info.o vi53xx_proc.o vi53xx_xdma_ctrl.o
 	obj-m := $(TARGET_MODULE).o
 else
 	BUILDSYSTEM_DIR:=/lib/modules/$(shell uname -r)/build

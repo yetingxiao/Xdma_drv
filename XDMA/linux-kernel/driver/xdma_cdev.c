@@ -21,6 +21,22 @@
 
 #include "xdma_cdev.h"
 
+//======================================add by ycf 2025.7.25=============================================
+#include "vi53xx_proc.h"
+#include "board_info.h"
+#include "vi53xx_xdma_ctrl.h"
+/*
+	struct es_cdev {
+	int major[BOARD_TEPE_NUM];						//						major number
+	struct class *cdev_class; 						//replace 				static struct class *g_xdma_class;
+	dev_t dev;										//replace 				alloc_chrdev_region(&dev, XDMA_MINOR_BASE,XDMA_MINOR_COUNT, XDMA_NODE_NAME);
+	char device_name[32]; 							//replace 				const char * const devnode_names[type]
+	uint32_t board_inst;
+	};
+*/
+struct es_cdev *es_cdev;//replace  1.static struct class *g_xdma_class; 2.static const char * const devnode_names[type] 3.dev_t dev;
+static const struct file_operations xdma_fops;
+//======================================add by ycf 2025.7.25=============================================
 static struct class *g_xdma_class;
 
 struct kmem_cache *cdev_cache;
@@ -58,7 +74,36 @@ static inline int xpdev_flag_test(struct xdma_pci_dev *xpdev,
 {
 	return xpdev->flags & (1 << fbit);
 }
+//======================================add by ycf 2025.7.25=============================================
 
+static long xdma_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+	int ret = -EINVAL;
+	int type, nr;
+
+    struct xdma_cdev *xcdev = (struct xdma_cdev *)filp->private_data;
+
+    type = _IOC_TYPE(cmd);
+	nr = _IOC_NR(cmd);
+
+	switch (type) {
+	case RTPC_IOCTL_TYPE_XDMA:
+	    ret = vi53xx_ioctl_xdma(nr, arg, xcdev->xdev);
+	    break;
+	default:
+	    break;
+	}
+
+	return ret;
+}
+
+static int xdma_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+    struct xdma_cdev *xcdev = (struct xdma_cdev *)filp->private_data;
+
+	return _vi53xx_xdma_mmap(vma, xcdev->xdev);
+}
+//======================================add by ycf 2025.7.25=============================================
 #ifdef __XDMA_SYSFS__
 ssize_t xdma_dev_instance_show(struct device *dev,
 		struct device_attribute *attr,
@@ -156,10 +201,18 @@ int char_open(struct inode *inode, struct file *file)
 	}
 	/* create a reference to our char device in the opened file */
 	file->private_data = xcdev;
-
+//======================================add by ycf 2025.7.25=============================================	
+	file->f_op = &xdma_fops;
+//======================================add by ycf 2025.7.25=============================================	
 	return 0;
 }
-
+//======================================add by ycf 2025.7.25=============================================	
+static const struct file_operations xdma_fops = {
+    .open       = char_open,
+    .unlocked_ioctl = xdma_ioctl,
+    .mmap = xdma_mmap,
+};
+//======================================add by ycf 2025.7.25=============================================	
 /*
  * Called when the device goes from used to unused.
  */
@@ -213,11 +266,17 @@ static int create_sys_device(struct xdma_cdev *xcdev, enum cdev_type type)
 		last_param = xcdev->bar;
 	else
 		last_param = engine ? engine->channel : 0;
-
-	xcdev->sys_device = device_create(g_xdma_class, &xdev->pdev->dev,
+//======================================remove by ycf 2025.7.25=============================================
+/*	xcdev->sys_device = device_create(g_xdma_class, &xdev->pdev->dev,
 		xcdev->cdevno, NULL, devnode_names[type], xdev->idx,
 		last_param);
-
+*/
+//======================================remove by ycf 2025.7.25=============================================
+//======================================add by ycf 2025.7.25=============================================
+	xcdev->sys_device = device_create(es_cdev->cdev_class, &xdev->pdev->dev,
+		xcdev->cdevno, NULL, es_cdev->device_name, xdev->idx,
+		last_param);
+//======================================add by ycf 2025.7.25=============================================
 	if (!xcdev->sys_device) {
 		pr_err("device_create(%s) failed\n", devnode_names[type]);
 		return -1;
@@ -253,7 +312,8 @@ static int destroy_xcdev(struct xdma_cdev *cdev)
 	}
 
 	if (cdev->sys_device)
-		device_destroy(g_xdma_class, cdev->cdevno);
+		//device_destroy(g_xdma_class, cdev->cdevno);//======================================remove by ycf 2025.7.25=============================================
+		device_destroy(es_cdev->cdev_class, cdev->cdevno);//======================================add by ycf 2025.7.25=============================================
 
 	cdev_del(&cdev->cdev);
 
@@ -268,7 +328,13 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 	int minor;
 	struct xdma_dev *xdev = xpdev->xdev;
 	dev_t dev;
-
+//======================================add by ycf 2025.7.25=============================================
+    struct device_info *info = &xcdev->info;
+    uint32_t instance;
+	void *reg_base = xdev->bar[0];
+    uint32_t inca_dt; 
+	int n = 0;
+//======================================add by ycf 2025.7.25=============================================
 	spin_lock_init(&xcdev->lock);
 	/* new instance? */
 	if (!xpdev->major) {
@@ -292,7 +358,39 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 	xcdev->xdev = xdev;
 	xcdev->engine = engine;
 	xcdev->bar = bar;
+//======================================add by ycf 2025.7.25=============================================
+	info->read_reg = xdev->fops->read_reg;
+	info->write_reg = xdev->fops->write_reg;
 
+    inca_dt = info->read_reg(reg_base, DEVICE_BOARD_TYPE);
+    dbg_init("board type       = 0x%x\n", inca_dt);
+
+    if ((instance = get_board_instance(inca_dt)) < 0) {
+        pr_info("unknow inca_dt\n");
+	    return -EINVAL;
+    }
+
+    if (!get_board_name(inca_dt)) {
+        pr_info("unknow board name\n");
+	    return -EINVAL;
+    }
+
+	n = get_major_idx(inca_dt);
+	xcdev->cdevno = MKDEV(es_cdev->major[n], instance);
+	es_cdev->board_inst = MINOR(xcdev->cdevno);
+	info->board_inst = instance;
+	init_device_info(info, reg_base);
+    dbg_init("board id         = 0x%x\n", info->board_id);
+    dbg_init("board instance   = 0x%x\n", info->board_inst);
+    dbg_init("board name       = %s  \n", info->device_name);
+    dbg_init("mdl_version      = 0x%x\n", info->mdl_version);
+    dbg_init("fpga_version     = 0x%x\n", info->fpga_version);
+    dbg_init("board_type       = 0x%x\n", info->board_type);
+    dbg_init("board serial     = 0x%x\n", info->serial);
+    dbg_init("board led_blink  = 0x%x\n", info->led_blink);
+
+	sprintf(es_cdev->device_name, "%s_%d", get_board_name(inca_dt), es_cdev->board_inst);
+//======================================add by ycf 2025.7.25=============================================
 	rv = config_kobject(xcdev, type);
 	if (rv < 0)
 		return rv;
@@ -348,14 +446,24 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 
 	dbg_init("xcdev 0x%p, %u:%u, %s, type 0x%x.\n",
 		xcdev, xpdev->major, minor, xcdev->cdev.kobj.name, type);
-
-	/* create device on our class */
+//======================================remove by ycf 2025.7.25=============================================
+/*
+	// create device on our class 
 	if (g_xdma_class) {
 		rv = create_sys_device(xcdev, type);
 		if (rv < 0)
 			goto del_cdev;
 	}
-
+*/
+//======================================remove by ycf 2025.7.25=============================================
+//======================================add by ycf 2025.7.25=============================================	
+	if (es_cdev->cdev_class) {
+        rv = create_sys_device(xcdev,type);
+        if (rv < 0)
+            goto del_cdev;
+    }
+	create_proc_device(xcdev, es_cdev->device_name);
+//======================================add by ycf 2025.7.25=============================================
 	return 0;
 
 del_cdev:
@@ -586,6 +694,41 @@ fail:
 
 int xdma_cdev_init(void)
 {
+//======================================add by ycf 2025.7.25=============================================
+	int i, rv;
+	es_cdev  = kmalloc(sizeof(*es_cdev), GFP_KERNEL);
+	if (!es_cdev)
+		return -1;
+	
+#if defined(RHEL_RELEASE_CODE)
+    #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9, 4))
+        es_cdev->cdev_class = class_create(XDMA_NODE_NAME);
+    #else
+        es_cdev->cdev_class = class_create(THIS_MODULE, XDMA_NODE_NAME);
+    #endif
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
+        es_cdev->cdev_class = class_create(XDMA_NODE_NAME);
+#else
+        es_cdev->cdev_class = class_create(THIS_MODULE, XDMA_NODE_NAME);
+#endif
+	if (IS_ERR(es_cdev->cdev_class)) {
+		dbg_init(XDMA_NODE_NAME ": failed to create class");
+		return -EINVAL;
+	}
+/////////////////// 需要特别注意主 次设备号分配	
+	for (i=0; i<BOARD_TEPE_NUM; i++) {
+		/* allocate a dynamically allocated char device node */
+		rv = alloc_chrdev_region(&es_cdev->dev, XDMA_MINOR_BASE,XDMA_MINOR_COUNT, XDMA_NODE_NAME);
+		if (rv) {
+			pr_err("unable to allocate cdev region %d.\n", rv);
+			return rv;
+		}
+
+		es_cdev->major[i] = MAJOR(es_cdev->dev);
+	}
+//======================================add by ycf 2025.7.25=============================================
+//======================================remove by ycf 2025.7.25=============================================
+/*
 #if defined(RHEL_RELEASE_CODE)
     #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9, 4))
         g_xdma_class = class_create(XDMA_NODE_NAME);
@@ -602,6 +745,8 @@ int xdma_cdev_init(void)
 		return -EINVAL;
 	}
 
+*/
+//======================================remove by ycf 2025.7.25=============================================
 	/* using kmem_cache_create to enable sequential cleanup */
 	cdev_cache = kmem_cache_create("cdev_cache",
 					sizeof(struct cdev_async_io), 0,
@@ -619,7 +764,25 @@ void xdma_cdev_cleanup(void)
 {
 	if (cdev_cache)
 		kmem_cache_destroy(cdev_cache);
-
+//======================================remove by ycf 2025.7.25=============================================
+/*
 	if (g_xdma_class)
 		class_destroy(g_xdma_class);
+*/
+//======================================remove by ycf 2025.7.25=============================================
+//======================================add by ycf 2025.7.25=============================================
+	int i; 
+
+    if (es_cdev->cdev_class)
+		class_destroy(es_cdev->cdev_class);
+
+	for (i=0; i<BOARD_TEPE_NUM; i++) {
+		unregister_chrdev_region(MKDEV(es_cdev->major[i], 0), 255);
+	}
+
+	if (es_cdev) {
+		kfree(es_cdev);
+		es_cdev = NULL;
+	}
+//======================================add by ycf 2025.7.25=============================================
 }
