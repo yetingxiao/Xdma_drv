@@ -4,10 +4,21 @@
 //#include "vi53xx_cndev_core.h"
 //======================================remove by ycf 2025.7.25=============================================
 //======================================add by ycf 2025.7.25=============================================
-#include "xdma_cdev.h"
+//#include "xdma_cdev.h"
+//struct xdma_pci_dev  xdma_cdev is needed
+#include "xdma_mod.h"
 //======================================add by ycf 2025.7.25=============================================
-#include "board_info.h"
 
+//======================================remove by ycf 2025.7.26=============================================
+//#include "board_info.h"
+//======================================remove by ycf 2025.7.26=============================================
+
+//======================================add by ycf 2025.7.26=============================================
+// board_info.h is no needed by vi53xx_proc,only list const bellow is needed
+#define VI53XX_DEV_NAME 	    "vi53xx"
+#define VI53XX_DEV_BOARDS       "boards"
+#define VI53XX_DEV_MAPING       "mapping"
+//======================================add by ycf 2025.7.26=============================================
 static struct proc_dir_entry *parent_dir = NULL;
 
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
@@ -43,7 +54,7 @@ static const struct file_operations __name ## _fops = {			\
 }
 #endif /* DEFINE_FILE_OPS */
 #define CMD_FILE_OPS DEFINE_FILE_OPS
-
+// 		proc/$VI53XX_DEV_NAME/$VI53XX_DEV_BOARDS文件，关联boards_fops操作的board_open函数最终调用函数
 static int boards_show(struct seq_file *m, void *v)
 {
 	struct xdma_pci_dev *xpdev;
@@ -75,7 +86,7 @@ ssize_t boards_write(struct file *file, const char __user *buf,
 {
 	return count;
 }
-
+// 		proc/$VI53XX_DEV_NAME/$VI53XX_DEV_MAPING文件，关联mapping_fops操作mapping_open函数最终调用的函数
 static int mapping_show(struct seq_file *m, void *v)
 {
 	struct xdma_pci_dev *xpdev;
@@ -224,7 +235,7 @@ static int create_instance_board_id_mmap(void)
 		return -1;
 	}
 
-	if (!proc_create(VI53XX_DEV_MAPING,  S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH , parent_dir, &mapping_fops))
+	if (!proc_create(VI53XX_DEV_MAPING,  S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH , parent_dir, &mapping_fops))	// 		proc/$VI53XX_DEV_NAME/$VI53XX_DEV_MAPING文件，关联mapping_fops操作函数
 		goto remove_proc;
 
 	return 0;
@@ -236,13 +247,13 @@ remove_proc:
 
 static int create_board_proc(void)
 {
-	parent_dir = proc_mkdir(VI53XX_DEV_NAME, NULL);
+	parent_dir = proc_mkdir(VI53XX_DEV_NAME, NULL);		// 		proc/$VI53XX_DEV_NAME根目录
 	if (!parent_dir) {
 		pr_err("create dir %s fail\n", VI53XX_DEV_NAME);
 		return -1;
 	}
 
-	if (!proc_create(VI53XX_DEV_BOARDS,  S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH , parent_dir, &boards_fops))
+	if (!proc_create(VI53XX_DEV_BOARDS,  S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH , parent_dir, &boards_fops))	// 		proc/$VI53XX_DEV_NAME/$VI53XX_DEV_BOARDS文件，关联boards_fops操作函数
 		goto remove_proc;
 
 	return 0;

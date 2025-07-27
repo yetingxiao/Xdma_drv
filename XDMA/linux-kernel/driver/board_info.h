@@ -51,14 +51,14 @@ struct board_info {
 };
 
 struct device_info {
-    unsigned int board_id;
+    unsigned int board_id;		
     unsigned int mdl_version;
     unsigned int fpga_version;
     unsigned int board_type;
     unsigned int serial;
     unsigned int led_blink;
 
-	uint32_t    board_inst;
+	uint32_t    board_inst;		//	MINOR(xcdev->cdevno)
 	char	device_name[32];
 
 	void *reg_base;

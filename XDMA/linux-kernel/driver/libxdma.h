@@ -31,6 +31,9 @@
 #include <linux/kernel.h>
 #include <linux/pci.h>
 #include <linux/workqueue.h>
+
+#include <linux/cdev.h>
+#include "board_info.h"
 //======================================add by ycf 2025.7.25=============================================
 extern struct list_head pcie_device_list;
 #define MAX_EXTRA_ADJ                       (15)
@@ -674,7 +677,56 @@ struct xdma_dev {
 	enum dev_capabilities capabilities;
 	u64 feature_id;
 };
+//===================================add by ycf from xdma_mod.h 2025.7.26===============================
+struct xdma_cdev {
+	unsigned long magic;		/* structure ID for sanity checks */
+	struct xdma_pci_dev *xpdev;
+	struct xdma_dev *xdev;
+	dev_t cdevno;			/* character device major:minor */			// 	MINOR(xcdev->cdevno)	logical instance number也是minor number，MAJOR(xcdev->cdevno)	major number
+	struct cdev cdev;		/* character device embedded struct */
+	int bar;			/* PCIe BAR for HW access, if needed */
+	unsigned long base;		/* bar access offset */
+	struct xdma_engine *engine;	/* engine instance, if needed */
+	struct xdma_user_irq *user_irq;	/* IRQ value, if needed */
+	struct device *sys_device;	/* sysfs device */
+	spinlock_t lock;
+	//add ycf=======================
+	struct device_info info;
+	//add ycf=======================
+};
 
+/* XDMA PCIe device specific book-keeping */
+struct xdma_pci_dev {
+	unsigned long magic;		/* structure ID for sanity checks */
+	struct pci_dev *pdev;	/* pci device struct from probe() */		//	pdev->vendor	vendor ID,	pdev->device	device ID
+	struct xdma_dev *xdev;
+	int major;		/* major number */
+	int instance;		/* instance number */
+	int user_max;
+	int c2h_channel_max;
+	int h2c_channel_max;
+
+	unsigned int flags;
+	/* character device structures */
+	struct xdma_cdev ctrl_cdev;
+	struct xdma_cdev sgdma_c2h_cdev[XDMA_CHANNEL_NUM_MAX];
+	struct xdma_cdev sgdma_h2c_cdev[XDMA_CHANNEL_NUM_MAX];
+	struct xdma_cdev events_cdev[16];
+
+	struct xdma_cdev user_cdev;
+	struct xdma_cdev bypass_c2h_cdev[XDMA_CHANNEL_NUM_MAX];
+	struct xdma_cdev bypass_h2c_cdev[XDMA_CHANNEL_NUM_MAX];
+	struct xdma_cdev bypass_cdev_base;
+
+	struct xdma_cdev xvc_cdev;
+
+	void *data;
+	//===================================add by ycf 2025.7.25===============================
+	struct list_head  list;
+	struct xdma_cfg_info  *dma_cfg[2]; /*2 dir*/
+	//===================================add by ycf 2025.7.25===============================
+};
+//===================================add by ycf from xdma_mod.h 2025.7.26===============================
 static inline int xdma_device_flag_check(struct xdma_dev *xdev, unsigned int f)
 {
 	unsigned long flags;

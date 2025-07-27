@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
+static int _get_idx(unsigned int board_id);
 
 struct vi53xx_file rfile = { 
 	.file = NULL,
@@ -23,7 +24,7 @@ static int init_check_ok = 0;
 static struct device_info *board_info = NULL;
 static struct device_info *board_error_info = NULL;
 uint8_t id_bitmap[BITMAP_SIZE];
-static vi53xx_dev_handle *dev_handle_list[MAX_DEV_HANDLE];
+static vi53xx_dev_handle *dev_handle_list[MAX_DEV_HANDLE];//从board_id 转换为vi53xx_dev_handle *
 static vi53xx_boardid_to_idx *dev_boardid_to_idx_list[MAX_DEV_HANDLE];
 static parvar_mat_t pmt;
 
@@ -155,20 +156,7 @@ void destroy_id(int id)
 	}
 }
 
-static int _get_idx(unsigned int board_id)
-{
-    int n;
-    vi53xx_boardid_to_idx *db;
 
-    for(n=0; n < MAX_DEV_HANDLE; n++) {
-        if((db=dev_boardid_to_idx_list[n]) != NULL) {
-            if(db->board_id == board_id) 
-                return db->idx;
-        }
-    }
-
-    return 0;
-}
 
 static int vi53xx_logva(int priority, const char *format, va_list args)
 {
@@ -280,8 +268,10 @@ static struct vi53xx_dev_handle *get_dev_handle(unsigned int board_id)
 static inline long xdma_call_ioctl(int dev_handle, unsigned long request, unsigned long arg)
 {
 	long ret = 0;
-
+//////////////////////////////////////////			应用入口3		/////////////////////////////////////////////////
+//调用用户态ioctl(dev_handle, request, arg); 			其中(struct vi53xx_xdma_info *)arg;
 	ret = ioctl(dev_handle, request, arg);
+//////////////////////////////////////////			应用入口3		/////////////////////////////////////////////////
 	if (ret < 0) {
 		printf("[error] call cmd %lx fail, ret is \n", request);
 	}
@@ -604,9 +594,11 @@ unsigned int vi53xx_get_xdma_poll_status(int board_id, int channel, int dir)
 static void *_vi53xx_xdma_mmap(int dev_handle, size_t size)
 {
 	void *addr;
-
+//////////////////////////////////////////			应用入口2		/////////////////////////////////////////////////
+//最终应用交互入口	汇聚点2mmap
     	/* mmap */
 	addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, dev_handle, 0);
+//////////////////////////////////////////			应用入口2		/////////////////////////////////////////////////
 	if (!addr) {
         dbg_info("[%s:%s:%d] mmap failed\n",__FILE__,__func__, __LINE__);
 		close(dev_handle);
@@ -625,14 +617,14 @@ void *vi53xx_xdma_mmap(int board_id, int channel, int direction, size_t size)
     if (!dh)
         return NULL;
 
-    dev_handle = dh->dev_handle;
+    dev_handle = dh->dev_handle;//调用的dev_handle最终来源于get_dev_handle(board_id)
 	
 	info.channel = channel;
 	info.dir = direction;
 	
-	_vi53xx_xdma_mmap_setting(dev_handle, (long)&info);
+	_vi53xx_xdma_mmap_setting(dev_handle, (long)&info);//最终调用 xdma_call_ioctl(dev_handle, RTPC_IOCTL_XDMA_SETTING, arg);其中(struct vi53xx_xdma_info *)arg;
 	
-	return _vi53xx_xdma_mmap(dev_handle, size);
+	return _vi53xx_xdma_mmap(dev_handle, size);//最终调用		用户空间mmap
 }
 
 void vi53xx_xdma_unmap(int board_id, void *addr, size_t size, int channel, int direction)
@@ -784,34 +776,6 @@ static void dump_board_info(struct device_info *info)
             );
 }
 
-static int extractValue(const char *filename, struct device_info *info)
-{
-    char line[256];
-    unsigned int  Inst, id, type;
-	char *name;
-    int board_num = 0;
-	char *separators = " \t\n"; 
-    FILE *file = fopen(filename, "r");
-
-    if (file == NULL) 
-        return -1;
-    
-    while (fgets(line, sizeof(line), file) != NULL) 
-    {
-		name = strtok(line, separators);
-        if(sscanf(line+11, "%x:%d:%x", &Inst,  &id, &type) == 3) {
-            info[board_num].board_inst = Inst;
-            info[board_num].board_id = id;
-            info[board_num].board_type = type;
-			sprintf(info[board_num].board_name, "%s", name);
-            dump_board_info(&info[board_num]);
-            board_num++;
-        }
-    }
-
-    fclose(file);
-    return board_num; 
-}
 
 static int _check_boards_info(struct device_info *info, struct device_info *err_info, int count)
 {   
@@ -893,6 +857,35 @@ static void init_config()
 	init_id_bitmap();
 }
 
+static int extractValue(const char *filename, struct device_info *info)
+{
+    char line[256];
+    unsigned int  Inst, id, type;
+	char *name;
+    int board_num = 0;
+	char *separators = " \t\n"; 
+    FILE *file = fopen(filename, "r");
+
+    if (file == NULL) 
+        return -1;
+ //	/proc/vi53xx/maping获取可用板卡数量   
+    while (fgets(line, sizeof(line), file) != NULL) 
+    {
+		name = strtok(line, separators);
+        if(sscanf(line+11, "%x:%d:%x", &Inst,  &id, &type) == 3) {
+            info[board_num].board_inst = Inst;
+            info[board_num].board_id = id;
+            info[board_num].board_type = type;
+			sprintf(info[board_num].board_name, "%s", name);
+            dump_board_info(&info[board_num]);
+            board_num++;
+        }
+    }
+
+    fclose(file);
+    return board_num; 
+}
+
 /*return
  * < 0: no mem ,/proc/vi53xx/maping   no device
  * = 0: success  
@@ -917,12 +910,12 @@ int check_boards_info(void)
         printf("oom\n");
         return ret;
     }
-
+//	/proc/vi53xx/maping获取可用板卡数量
     board_num = extractValue(filename, board_info);
     if (board_num <= 0) {
         return ret;
     }
-
+//可用板卡数量
     available_board_count = board_num;
 
     dump_available_boards_info(available_board_count);
@@ -941,7 +934,7 @@ void free_board_info(unsigned int board_id)
 	release_parvar_mat();
     init_check_ok = 0;
 }
-
+//根据board_id获取
 unsigned int  vi53xx_get_board_type(unsigned int board_id)
 {
     int i = 0;
@@ -964,9 +957,32 @@ static int get_board_handle(unsigned int board_id)
 
 	// board_type  instance	
 	sprintf(board_name, "/dev/%s_%d", get_board_name(board_type), board_inst);
+//////////////////////////////////////////			应用入口1		/////////////////////////////////////////////////	
+//最终应用交互入口	汇聚点1 			open 	"/dev/%s_%d" 		vi53xx_get_board_type(board_id),get_board_instance(board_id)
 	dev_handle = open(board_name, O_RDWR);
-
+//////////////////////////////////////////			应用入口1		/////////////////////////////////////////////////
 	return dev_handle;
+}
+//board_id 转换为唯一的		vi53xx_boardid_to_idx* dev_boardid_to_idx_list[],
+/*其中 
+typedef struct vi53xx_boardid_to_idx{
+    int idx;
+    unsigned int board_id;
+}vi53xx_boardid_to_idx;
+*/
+static int _get_idx(unsigned int board_id)
+{
+    int n;
+    vi53xx_boardid_to_idx *db;
+
+    for(n=0; n < MAX_DEV_HANDLE; n++) {
+        if((db=dev_boardid_to_idx_list[n]) != NULL) {
+            if(db->board_id == board_id) 
+                return db->idx;
+        }
+    }
+
+    return 0;
 }
 
 int get_idx(unsigned int board_id)
@@ -1051,7 +1067,7 @@ int vi53xx_device_open(unsigned int board_id)
     vi53xx_dev_handle *dh;
     int n;
     int cnt = get_available_board_count();
-	int dev_handle = get_board_handle(board_id);
+	int dev_handle = get_board_handle(board_id);//		open 	"/dev/%s_%d", get_board_name(vi53xx_get_board_type(board_id)), get_board_instance(board_id)
 
     if (!cnt)
         return -ENODEV;
@@ -1062,7 +1078,7 @@ int vi53xx_device_open(unsigned int board_id)
     for(n=0; n < cnt; n++) {
         if((dh=dev_handle_list[n]) != NULL) {
             if(dh->board_id == board_id) 
-                return dh->dev_handle;
+                return dh->dev_handle;//在已有设备中已经有，返回已有dh->dev_handle
         }
     }
 

@@ -41,6 +41,19 @@ MODULE_DESCRIPTION(DRV_MODULE_DESC);
 MODULE_VERSION(DRV_MODULE_VERSION);
 MODULE_LICENSE("Dual BSD/GPL");
 
+//======================================add by ycf 2025.7.27=============================================
+static DEFINE_SEMAPHORE(vi53xx_mutex);
+static void vi53xx_lock(void)
+{
+    down(&vi53xx_mutex);
+}
+
+static void vi53xx_unlock(void)
+{
+    up(&vi53xx_mutex);
+}
+//======================================add by ycf 2025.7.27=============================================
+
 /* SECTION: Module global variables */
 static int xpdev_cnt;
 
@@ -104,8 +117,10 @@ static const struct pci_device_id pci_ids[] = {
 	{ PCI_DEVICE(0x10ee, 0x4B28), },
 
 	{ PCI_DEVICE(0x10ee, 0x2808), },
-        //vender/device id确认使用xilinx 0x10ee, 0x16f2
-        { PCI_DEVICE(0x10ee, 0x16f2), },
+    //vender/device id确认使用xilinx 0x10ee, 0x16f2 ,0x16f2 es5311
+    { PCI_DEVICE(0x10ee, 0x16f2), },
+	//vender/device id确认使用xilinx 0x10ee, 0x16f3 ,0x16f3 es5341
+	{ PCI_DEVICE(0x10ee, 0x16f3), },
 #ifdef INTERNAL_TESTING
 	{ PCI_DEVICE(0x1d0f, 0x1042), 0},
 #endif
@@ -219,7 +234,11 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	rv = xpdev_create_interfaces(xpdev);
 	if (rv)
 		goto err_out;
-
+//======================================add by ycf 2025.7.27=============================================
+	vi53xx_lock();
+	list_add(&xpdev->list, &pcie_device_list);
+	vi53xx_unlock();
+//======================================add by ycf 2025.7.27=============================================	
 	dev_set_drvdata(&pdev->dev, xpdev);
 
 	return 0;
@@ -244,7 +263,11 @@ static void remove_one(struct pci_dev *pdev)
 	pr_info("pdev 0x%p, xdev 0x%p, 0x%p.\n",
 		pdev, xpdev, xpdev->xdev);
 	xpdev_free(xpdev);
-
+//======================================add by ycf 2025.7.27=============================================
+    vi53xx_lock();
+	list_del(&xpdev->list);
+	vi53xx_unlock();
+//======================================add by ycf 2025.7.27=============================================
 	dev_set_drvdata(&pdev->dev, NULL);
 }
 
