@@ -51,7 +51,8 @@ UART_SRC =  xil_assert.c \
 			xuartns550_stats.c \
 			xil_printf.c	\
 			xil_io.c		\
-			xuart_cdev.c
+			xuart_cdev.c	\
+			xparameters.c
 #UART_OBJS = $(UART_SRCS:.c=.o)
 UART_OBJS = xil_assert.o \
 			xuartns550.o \
@@ -65,7 +66,8 @@ UART_OBJS = xil_assert.o \
 			xuartns550_stats.o	\
 			xil_printf.o	\
 			xil_io.o		\
-			xuart_cdev.o
+			xuart_cdev.o	\
+			xparameters.o
             # ... 其他 .o 文件
 
 TARGET_MODULE:=xdma

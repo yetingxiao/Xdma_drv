@@ -158,6 +158,11 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+//======================================add by ycf 2025.8.8=============================================
+#include <linux/pci.h>
+#include <linux/interrupt.h>
+irqreturn_t XUartNs550_KernelIntHandlerEntry (int irq, void *dev_id);
+//======================================add by ycf 2025.8.8=============================================
 
 /***************************** Include Files ********************************/
 
@@ -292,7 +297,7 @@ extern "C" {
  */
 typedef struct {
 	u16 DeviceId;		/**< Unique ID  of device */
-	UINTPTR BaseAddress;	/**< Base address of device */
+	volatile UINTPTR BaseAddress;	/**< Base address of device */
 	u32 InputClockHz;	/**< Input clock frequency */
 	u32 DefaultBaudRate;	/**< Baud Rate in bps, ie 1200 */
 } XUartNs550_Config;

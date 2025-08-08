@@ -50,7 +50,9 @@
 
 #ifndef XIL_IO_H           /* prevent circular inclusions */
 #define XIL_IO_H           /* by using protection macros */
-
+//======================================add by ycf 2025.8.8=============================================
+#include <asm/io.h>
+//======================================add by ycf 2025.8.8=============================================
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -112,7 +114,10 @@ extern u32 XStl_RegUpdate(u32 RegAddr, u32 RegVal);
 ******************************************************************************/
 static INLINE u8 Xil_In8(UINTPTR Addr)
 {
-	return *(volatile u8 *) Addr;
+	//======================================add by ycf 2025.8.8=============================================
+	//return *(volatile u8 *) Addr;
+	ioread8((volatile u8 *) Addr);
+	//======================================add by ycf 2025.8.8=============================================
 }
 
 /*****************************************************************************/
@@ -129,7 +134,10 @@ static INLINE u8 Xil_In8(UINTPTR Addr)
 ******************************************************************************/
 static INLINE u16 Xil_In16(UINTPTR Addr)
 {
-	return *(volatile u16 *) Addr;
+	//======================================add by ycf 2025.8.8=============================================
+	//return *(volatile u16 *) Addr;
+	ioread16((volatile u16 *) Addr);
+	//======================================add by ycf 2025.8.8=============================================
 }
 
 /*****************************************************************************/
@@ -146,7 +154,10 @@ static INLINE u16 Xil_In16(UINTPTR Addr)
 ******************************************************************************/
 static INLINE u32 Xil_In32(UINTPTR Addr)
 {
+	//======================================add by ycf 2025.8.8=============================================
 	return *(volatile u32 *) Addr;
+	ioread32((volatile u32 *) Addr);
+	//======================================add by ycf 2025.8.8=============================================
 }
 
 /*****************************************************************************/
@@ -163,7 +174,10 @@ static INLINE u32 Xil_In32(UINTPTR Addr)
 ******************************************************************************/
 static INLINE u64 Xil_In64(UINTPTR Addr)
 {
-	return *(volatile u64 *) Addr;
+	//======================================add by ycf 2025.8.8=============================================
+	//return *(volatile u64 *) Addr;
+	ioread64((volatile u64 *) Addr);
+	//======================================add by ycf 2025.8.8=============================================
 }
 
 /*****************************************************************************/
@@ -181,8 +195,11 @@ static INLINE u64 Xil_In64(UINTPTR Addr)
 ******************************************************************************/
 static INLINE void Xil_Out8(UINTPTR Addr, u8 Value)
 {
+	//======================================add by ycf 2025.8.8=============================================
 	volatile u8 *LocalAddr = (volatile u8 *)Addr;
-	*LocalAddr = Value;
+	//*LocalAddr = Value;
+	iowrite8(Value,LocalAddr);
+	//======================================add by ycf 2025.8.8=============================================
 }
 
 /*****************************************************************************/
@@ -199,8 +216,11 @@ static INLINE void Xil_Out8(UINTPTR Addr, u8 Value)
 ******************************************************************************/
 static INLINE void Xil_Out16(UINTPTR Addr, u16 Value)
 {
+	//======================================add by ycf 2025.8.8=============================================
 	volatile u16 *LocalAddr = (volatile u16 *)Addr;
-	*LocalAddr = Value;
+	//*LocalAddr = Value;
+	iowrite16(Value,LocalAddr);
+	//======================================add by ycf 2025.8.8=============================================
 }
 
 /*****************************************************************************/
@@ -220,9 +240,11 @@ static INLINE void Xil_Out32(UINTPTR Addr, u32 Value)
 {
 #ifndef ENABLE_SAFETY
 	volatile u32 *LocalAddr = (volatile u32 *)Addr;
-	*LocalAddr = Value;
+	//*LocalAddr = Value;
+	iowrite32(Value,LocalAddr);
 #else
-	XStl_RegUpdate(Addr, Value);
+//	XStl_RegUpdate(Addr, Value);
+	iowrite32(Value,LocalAddr);
 #endif
 }
 
@@ -241,7 +263,8 @@ static INLINE void Xil_Out32(UINTPTR Addr, u32 Value)
 static INLINE void Xil_Out64(UINTPTR Addr, u64 Value)
 {
 	volatile u64 *LocalAddr = (volatile u64 *)Addr;
-	*LocalAddr = Value;
+	//*LocalAddr = Value;
+	iowrite64(Value,LocalAddr);
 }
 
 #if defined (__MICROBLAZE__)

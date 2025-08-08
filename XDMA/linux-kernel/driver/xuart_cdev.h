@@ -19,6 +19,7 @@ struct uart_dev {
 	XUartNs550 *uart_instance; // 指向UART实例的指针
     spinlock_t lock; // 用于保护缓冲区访问的自旋锁
 };
-extern 	int 	my_uart_cdev_init(void);
-extern 	void 	my_uart_cdev_exit(void);
+extern 	int 	AXIUart_cdev_init(void);
+extern 	void 	AXIUart_cdev_exit(void);
+extern XUartNs550 UartNs550Instance;	
 #endif

@@ -48,12 +48,20 @@
  * The configuration table for UART 16550/16450 devices in the table. Each
  * device should have an entry in this table.
  */
+ /* 
 XUartNs550_Config XUartNs550_ConfigTable[] =
 {
 	{
 		XPAR_UARTNS550_0_DEVICE_ID,
 		XPAR_UARTNS550_0_BASEADDR,
 		XPAR_UARTNS550_0_CLOCK_HZ
-	}
+	} 
+};
+
+*/
+
+XUartNs550_Config XUartNs550_ConfigTable[2] =
+{
+
 };
 /** @} */

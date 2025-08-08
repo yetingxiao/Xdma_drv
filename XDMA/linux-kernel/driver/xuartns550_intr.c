@@ -42,7 +42,10 @@
 #include "xuartns550.h"
 #include "xuartns550_i.h"
 #include "xil_io.h"
-
+//======================================add by ycf 2025.8.8=============================================
+#include <linux/pci.h>
+#include <linux/interrupt.h>
+//======================================add by ycf 2025.8.8=============================================
 /************************** Constant Definitions ****************************/
 
 /**************************** Type Definitions ******************************/
@@ -157,7 +160,14 @@ void XUartNs550_InterruptHandler(XUartNs550 *InstancePtr)
 
 	HandlerTable[IsrStatus](InstancePtr);
 }
-
+//======================================add by ycf 2025.8.8=============================================
+irqreturn_t XUartNs550_KernelIntHandlerEntry (int irq, void *dev_id)
+{
+	pr_info("User IRQ handler for channel %d triggered! My private data is %p\n", irq,(XUartNs550 *)dev_id);
+    return IRQ_HANDLED;
+	XUartNs550_InterruptHandler((XUartNs550 *)dev_id);
+}
+//======================================add by ycf 2025.8.8=============================================
 /****************************************************************************/
 /**
 *

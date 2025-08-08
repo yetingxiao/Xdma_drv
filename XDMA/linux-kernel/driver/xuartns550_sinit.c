@@ -35,7 +35,7 @@
 /************************** Constant Definitions ****************************/
 
 #ifndef XPAR_DEFAULT_BAUD_RATE
-#define XPAR_DEFAULT_BAUD_RATE 19200
+#define XPAR_DEFAULT_BAUD_RATE 1562500
 #endif
 
 /**************************** Type Definitions ******************************/
@@ -68,7 +68,24 @@ XUartNs550_Config *XUartNs550_LookupConfig(u16 DeviceId)
 {
 	XUartNs550_Config *CfgPtr = NULL;
 	u32 Index;
+	//=========================add by ycf 2025.8.8====================
+	XUartNs550_Config temp;
+	//unsigned char *UART_REGS=GetUartKernelBase();
 
+	{
+		temp.DeviceId		=	XPAR_UARTNS550_0_DEVICE_ID;
+		temp.BaseAddress	=	UART_KERNEL_REGS+UARTNS550_0_BASEADDR;
+		temp.InputClockHz	=	XPAR_UARTNS550_0_CLOCK_HZ;
+	}
+	XUartNs550_ConfigTable[0] =temp;
+
+	{
+		temp.DeviceId		=	XPAR_UARTNS550_1_DEVICE_ID;
+		temp.BaseAddress	=	UART_KERNEL_REGS+UARTNS550_1_BASEADDR;
+		temp.InputClockHz	=	XPAR_UARTNS550_1_CLOCK_HZ;
+	}
+	XUartNs550_ConfigTable[1] =temp;
+	//=========================add by ycf 2025.8.8====================
 	for (Index=0; Index < XPAR_XUARTNS550_NUM_INSTANCES; Index++) {
 		if (XUartNs550_ConfigTable[Index].DeviceId == DeviceId) {
 			CfgPtr = &XUartNs550_ConfigTable[Index];

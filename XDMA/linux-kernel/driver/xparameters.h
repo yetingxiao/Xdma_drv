@@ -29,7 +29,39 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#define UARTNS550_0_BASEADDR 	0x30000 // 假设 UART 从 BAR 0 的地址 0x3_0000 开始
+#define UARTNS550_1_BASEADDR    0x40000 /* IPIF base address */
+extern unsigned char * GetUartKernelBase(void);
+extern char IS_KERNEL_MAPPED;
+extern volatile unsigned char __iomem *	UART_KERNEL_REGS;
+/*****************************************************************************
+ *
+ * NS16550 UART defines.
+ * DeviceID starts at 20
+ */
+#define XPAR_XUARTNS550_NUM_INSTANCES 1         /* Number of instances */
 
+#define XPAR_UARTNS550_0_DEVICE_ID   20         /* Device ID for instance */
+#define XPAR_UARTNS550_0_BASEADDR    0x30000 /* IPIF base address */
+#define XPAR_UARTNS550_0_CLOCK_HZ    (100000000L)/* 100 MHz clock */
+
+#define XPAR_UARTNS550_1_DEVICE_ID   21         /* Device ID for instance */
+#define XPAR_UARTNS550_1_BASEADDR    0x40000 /* IPIF base address */
+#define XPAR_UARTNS550_1_CLOCK_HZ    (100000000L)/* 66 MHz clock */
+
+/*****************************************************************************
+ *
+ * UartLite defines.
+ * DeviceID starts at 30
+ */
+#define XPAR_XUARTLITE_NUM_INSTANCES 1         /* Number of instances */
+
+#define XPAR_UARTLITE_0_DEVICE_ID   30         /* Device ID for instance */
+#define XPAR_UARTLITE_0_BASEADDR    0xA0020000 /* Device base address */
+#define XPAR_UARTLITE_0_BAUDRATE    19200      /* Baud rate */
+#define XPAR_UARTLITE_0_USE_PARITY  FALSE      /* Parity generator enabled */
+#define XPAR_UARTLITE_0_ODD_PARITY  FALSE      /* Type of parity generated */
+#define XPAR_UARTLITE_0_DATA_BITS   8          /* Data bits */
 /* unifying driver changes
 
 added XPAR_INTC_0_ACK_BEFORE, XPAR_INTC_1_ACK_BEFORE
@@ -171,34 +203,7 @@ deleted XPAR_INTC_0_MAX_ID, XPAR_INTC_1_MAX_ID
 #define XPAR_EMAC_0_ERR_COUNT_EXIST  TRUE      /* Does device have counters? */
 #define XPAR_EMAC_0_MII_EXIST        TRUE      /* Does device support MII? */
 
-/*****************************************************************************
- *
- * NS16550 UART defines.
- * DeviceID starts at 20
- */
-#define XPAR_XUARTNS550_NUM_INSTANCES 1         /* Number of instances */
 
-#define XPAR_UARTNS550_0_DEVICE_ID   20         /* Device ID for instance */
-#define XPAR_UARTNS550_0_BASEADDR    0x80030000 /* IPIF base address */
-#define XPAR_UARTNS550_0_CLOCK_HZ    (100000000L)/* 100 MHz clock */
-
-#define XPAR_UARTNS550_1_DEVICE_ID   21         /* Device ID for instance */
-#define XPAR_UARTNS550_1_BASEADDR    0x80040000 /* IPIF base address */
-#define XPAR_UARTNS550_1_CLOCK_HZ    (100000000L)/* 66 MHz clock */
-
-/*****************************************************************************
- *
- * UartLite defines.
- * DeviceID starts at 30
- */
-#define XPAR_XUARTLITE_NUM_INSTANCES 1         /* Number of instances */
-
-#define XPAR_UARTLITE_0_DEVICE_ID   30         /* Device ID for instance */
-#define XPAR_UARTLITE_0_BASEADDR    0xA0020000 /* Device base address */
-#define XPAR_UARTLITE_0_BAUDRATE    19200      /* Baud rate */
-#define XPAR_UARTLITE_0_USE_PARITY  FALSE      /* Parity generator enabled */
-#define XPAR_UARTLITE_0_ODD_PARITY  FALSE      /* Type of parity generated */
-#define XPAR_UARTLITE_0_DATA_BITS   8          /* Data bits */
 
 /*****************************************************************************
  *

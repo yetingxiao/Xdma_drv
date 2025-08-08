@@ -169,6 +169,7 @@ static struct xdma_pci_dev *xpdev_alloc(struct pci_dev *pdev)
 static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	int rv = 0;
+	int ret=0;
 	struct xdma_pci_dev *xpdev = NULL;
 	struct xdma_dev *xdev;
 	void *hndl;
@@ -205,37 +206,6 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (!xpdev->h2c_channel_max && !xpdev->c2h_channel_max)
 		pr_warn("NO engine found!\n");
 
-	if (xpdev->user_max) {
-		u32 mask = (1 << (xpdev->user_max + 1)) - 1;
-
-		rv = xdma_user_isr_enable(hndl, mask);
-//======================================add by ycf 2025.8.4=============================================
-/*
- * xdma_user_isr_register - register a user ISR handler
- * It is expected that the xdma will register the ISR, and for the user
- * interrupt, it will call the corresponding handle if it is registered and
- * enabled.
- *
- * @pdev: ptr to the the pci_dev struct	
- * @mask: bitmask of user interrupts (0 ~ 15)to be registered
- *		bit 0: user interrupt 0
- *		...
- *		bit 15: user interrupt 15
- *		any bit above bit 15 will be ignored.
- * @handler: the correspoinding handler
- *		a NULL handler will be treated as de-registeration
- * @name: to be passed to the handler, ignored if handler is NULL`
- * @dev: to be passed to the handler, ignored if handler is NULL`
- * return < 0 in case of error
- * TODO: exact error code will be defined later
- */
-		printk(KERN_INFO "register user interrupt \n");	
-		xdma_user_isr_register(xpdev->pdev,0,(irq_handler_t)XUartNs550_InterruptHandler,NULL);
-//======================================add by ycf 2025.8.4=============================================
-		if (rv)
-			goto err_out;
-	}
-
 	/* make sure no duplicate */
 	xdev = xdev_find_by_pdev(pdev);
 	if (!xdev) {
@@ -260,12 +230,64 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	rv = xpdev_create_interfaces(xpdev);
 	if (rv)
 		goto err_out;
+
+	dev_set_drvdata(&pdev->dev, xpdev);
+	
+	if (xpdev->user_max) {
+		u32 mask = (1 << (xpdev->user_max + 1)) - 1;
+		rv = xdma_user_isr_enable(hndl, mask);
+		if (rv)
+		{
+			pr_err("Failed to Enable user interrupt\n");
+			goto err_out;
+		}
+		//======================================add by ycf 2025.8.4=============================================
+		/*
+		 * xdma_user_isr_register - register a user ISR handler
+		 * It is expected that the xdma will register the ISR, and for the user
+		 * interrupt, it will call the corresponding handle if it is registered and
+		 * enabled.
+		 *
+		 * @pdev: ptr to the the pci_dev struct	
+		 * @mask: bitmask of user interrupts (0 ~ 15)to be registered
+		 *		bit 0: user interrupt 0
+		 *		...
+		 *		bit 15: user interrupt 15
+		 *		any bit above bit 15 will be ignored.
+		 * @handler: the correspoinding handler
+		 *		a NULL handler will be treated as de-registeration
+		 * @name: to be passed to the handler, ignored if handler is NULL`
+		 * @dev: to be passed to the handler, ignored if handler is NULL`
+		 * return < 0 in case of error
+		 * TODO: exact error code will be defined later
+		 */
+		printk(KERN_INFO "register user interrupt \n");	
+		//XUartNs550 *UartInstancePtr=kmalloc(sizeof(XUartNs550),GFP_KERNEL);
+		XUartNs550 *UartInstancePtr=&UartNs550Instance;
+		if (UartInstancePtr == NULL) {
+			pr_err("Failed to allocate memory for UartInstancePtr\n");
+			return -ENOMEM;
+		}
+		ret=xdma_user_isr_register(xpdev->xdev,mask,(irq_handler_t)XUartNs550_KernelIntHandlerEntry,UartInstancePtr);
+		if (ret < 0) {
+			pr_err("Failed to register XDMA user ISR\n");
+			return ret;
+		}
+		pr_info("BAR%d mapped at 0x%p\n", 0,xdev->bar[0]);
+		UART_KERNEL_REGS=xdev->bar[0];
+		IS_KERNEL_MAPPED=1;
+		//======================================add by ycf 2025.8.4=============================================
+	}
 //======================================add by ycf 2025.7.27=============================================
 	vi53xx_lock();
 	list_add(&xpdev->list, &pcie_device_list);
 	vi53xx_unlock();
 //======================================add by ycf 2025.7.27=============================================	
-	dev_set_drvdata(&pdev->dev, xpdev);
+
+//======================================add by ycf 2025.8.7=============================================	
+		printk(KERN_INFO "AXIUart: Before Cdev Initializing\n");	
+		AXIUart_cdev_init();
+//======================================add by ycf 2025.8.7=============================================
 
 	return 0;
 
@@ -411,10 +433,7 @@ static int xdma_mod_init(void)
 		desc_blen_max = XDMA_DESC_BLEN_MAX;
 	pr_info("desc_blen_max: 0x%x/%u, timeout: h2c %u c2h %u sec.\n",
 		desc_blen_max, desc_blen_max, h2c_timeout, c2h_timeout);
-//======================================add by ycf 2025.8.7=============================================	
-	printk(KERN_INFO "my_uart: Before Cdev Initializing\n");	
-	my_uart_cdev_init();
-//======================================add by ycf 2025.8.7=============================================	
+
 	rv = xdma_cdev_init();
 	if (rv < 0)
 		return rv;
@@ -429,7 +448,7 @@ static void xdma_mod_exit(void)
 	pci_unregister_driver(&pci_driver);
 	xdma_cdev_cleanup();
 //======================================add by ycf 2025.8.7=============================================
-	my_uart_cdev_exit();
+	AXIUart_cdev_exit();
 //======================================add by ycf 2025.8.7=============================================
 }
 

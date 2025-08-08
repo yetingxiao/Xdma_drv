@@ -30,21 +30,21 @@ static volatile int TotalSentCount;
 
 
 XUartNs550 UartNs550Instance;	
-static struct uart_dev my_uart_dev;
+static struct uart_dev AXIUart_dev;
 
 // ==========================================================
 // 2. 文件操作回调函数
 // ==========================================================
-static int my_uart_open(struct inode *inode, struct file *filp) {
-    filp->private_data = &my_uart_dev;
+static int AXIUart_open(struct inode *inode, struct file *filp) {
+    filp->private_data = &AXIUart_dev;
     return 0;
 }
 
-static int my_uart_release(struct inode *inode, struct file *filp) {
+static int AXIUart_release(struct inode *inode, struct file *filp) {
     return 0;
 }
 
-static ssize_t my_uart_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos) {
+static ssize_t AXIUart_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos) {
     // 逻辑：从内核缓冲区拷贝数据到用户缓冲区
     // 1. 等待队列：如果缓冲区为空，休眠进程
     // 2. 数据拷贝：使用 copy_to_user 拷贝数据
@@ -96,7 +96,7 @@ static ssize_t my_uart_read(struct file *filp, char __user *buf, size_t count, l
     return copied;
 }
 
-static ssize_t my_uart_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos) {
+static ssize_t AXIUart_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos) {
     // 逻辑：从用户缓冲区拷贝数据到内核并发送
     // 1. 数据拷贝：使用 copy_from_user 拷贝数据
     // 2. 发送数据：调用 XUartNs550_Send 函数
@@ -149,12 +149,12 @@ static ssize_t my_uart_write(struct file *filp, const char __user *buf, size_t c
     return written;
 }
 
-static struct file_operations my_uart_fops = {
+static struct file_operations AXIUart_fops = {
     .owner = THIS_MODULE,
-    .open = my_uart_open,
-    .release = my_uart_release,
-    .read = my_uart_read,
-    .write = my_uart_write,
+    .open = AXIUart_open,
+    .release = AXIUart_release,
+    .read = AXIUart_read,
+    .write = AXIUart_write,
 };
 
 // ==========================================================
@@ -163,7 +163,7 @@ static struct file_operations my_uart_fops = {
 void XUartNs550_IntHandler(void *CallBackRef, u32 Event, unsigned int EventData) {
     // 逻辑：在中断中读取数据并放入缓冲区
     // 1. 调用 XUartNs550_Recv 读取数据
-    // 2. 将数据存入 my_uart_dev.rx_buffer
+    // 2. 将数据存入 AXIUart_dev.rx_buffer
     // 3. 唤醒等待队列：调用 wake_up_interruptible
     // ...
 	struct uart_dev *dev = (struct uart_dev *)CallBackRef;
@@ -271,52 +271,47 @@ void XUartNs550_IntHandler(void *CallBackRef, u32 Event, unsigned int EventData)
 // ==========================================================
 // 4. 驱动模块加载和卸载
 // ==========================================================
-int  my_uart_cdev_init(void) {
+int  AXIUart_cdev_init(void) {
 	
     int result;
 	u16 Options = 0;
     XUartNs550_Config *ConfigPtr;
 
 
-    printk(KERN_INFO "my_uart: Initializing driver module\n");
+    printk(KERN_INFO "AXIUart: Initializing driver module\n");
 
     // 1. 初始化设备结构体
-    memset(&my_uart_dev, 0, sizeof(my_uart_dev));
-    my_uart_dev.uart_instance = &UartNs550Instance;
-    spin_lock_init(&my_uart_dev.lock);
-    init_waitqueue_head(&my_uart_dev.rx_wait_queue);
-    init_waitqueue_head(&my_uart_dev.tx_wait_queue);
+    memset(&AXIUart_dev, 0, sizeof(AXIUart_dev));
+    AXIUart_dev.uart_instance = &UartNs550Instance;
+    spin_lock_init(&AXIUart_dev.lock);
+    init_waitqueue_head(&AXIUart_dev.rx_wait_queue);
+    init_waitqueue_head(&AXIUart_dev.tx_wait_queue);
     
     // 2. 注册字符设备
-    result = alloc_chrdev_region(&my_uart_dev.dev_num, 0, 1, UART_DEVICE_NAME);
+    result = alloc_chrdev_region(&AXIUart_dev.dev_num, 0, 1, UART_DEVICE_NAME);
     if (result < 0) {
-        printk(KERN_WARNING "my_uart: Failed to allocate device number\n");
+        printk(KERN_WARNING "AXIUart: Failed to allocate device number\n");
         return result;
     }
-    cdev_init(&my_uart_dev.cdev, &my_uart_fops);
-    my_uart_dev.cdev.owner = THIS_MODULE;
-    result = cdev_add(&my_uart_dev.cdev, my_uart_dev.dev_num, 1);
+    cdev_init(&AXIUart_dev.cdev, &AXIUart_fops);
+    AXIUart_dev.cdev.owner = THIS_MODULE;
+    result = cdev_add(&AXIUart_dev.cdev, AXIUart_dev.dev_num, 1);
     if (result < 0) {
-        printk(KERN_WARNING "my_uart: Failed to add cdev\n");
-        unregister_chrdev_region(my_uart_dev.dev_num, 1);
+        printk(KERN_WARNING "AXIUart: Failed to add cdev\n");
+        unregister_chrdev_region(AXIUart_dev.dev_num, 1);
         return result;
     }
-    printk(KERN_INFO "my_uart: Device registered with major %d, minor %d\n", MAJOR(my_uart_dev.dev_num), MINOR(my_uart_dev.dev_num));
+    printk(KERN_INFO "AXIUart: Device registered with major %d, minor %d\n", MAJOR(AXIUart_dev.dev_num), MINOR(AXIUart_dev.dev_num));
 
     // 3. 硬件初始化
-    ConfigPtr = XUartNs550_LookupConfig(UART_DEVICE_ID);
-    if (!ConfigPtr) {
-        printk(KERN_ERR "my_uart: XUartNs550_LookupConfig failed\n");
-        goto cleanup_cdev;
-    }
-    result = XUartNs550_CfgInitialize(my_uart_dev.uart_instance, ConfigPtr, ConfigPtr->BaseAddress);
+	result=XUartNs550_Initialize(AXIUart_dev.uart_instance,UART_DEVICE_ID);
     if (result != XST_SUCCESS) {
-        printk(KERN_ERR "my_uart: XUartNs550_CfgInitialize failed with code %d\n", result);
+        printk(KERN_ERR "AXIUart: XUartNs550_CfgInitialize failed with code %d\n", result);
         goto cleanup_cdev;
     }
 
     // 4. 设置波特率和流控（根据需要修改）
-    XUartNs550_SetBaud(my_uart_dev.uart_instance,UART_CLOCK_HZ, 1562500);
+    //XUartNs550_SetBaud(AXIUart_dev.uart_instance,UART_CLOCK_HZ, 1562500);
     // XUartNs550_SetDataFormat(...)
     // XUartNs550_SetFlowControl(...)
 
@@ -326,22 +321,19 @@ int  my_uart_cdev_init(void) {
     // 假设 xpdev 和 irq_handler_t 等参数已正确获取
     XUartNs550_SetHandler(&UartNs550Instance, XUartNs550_IntHandler,&UartNs550Instance);
 	Options = XUN_OPTION_DATA_INTR |XUN_OPTION_FIFOS_ENABLE;
-	XUartNs550_SetOptions(&UartNs550Instance, Options);
-    //result = xdma_user_isr_register(xpdev->pdev, 0, (irq_handler_t)XUartNs550_InterruptHandler, (void *)&my_uart_dev);
-	
-    if (result < 0) {
-        printk(KERN_ERR "my_uart: Failed to register interrupt handler\n");
-        goto cleanup_cdev;
-    }
-	
-    XUartNs550_EnableIntr(my_uart_dev.uart_instance);
+	XUartNs550_SetOptions(&UartNs550Instance, Options); 
 
-    printk(KERN_INFO "my_uart: Driver loaded successfully\n");
+    //result = xdma_user_isr_register(xpdev->pdev, 0, (irq_handler_t)XUartNs550_InterruptHandler, (void *)&AXIUart_dev);
+	
+	
+    XUartNs550_EnableIntr(AXIUart_dev.uart_instance);
+
+    printk(KERN_INFO "AXIUart: Driver loaded successfully\n");
     return 0;
 
 cleanup_cdev:
-    cdev_del(&my_uart_dev.cdev);
-    unregister_chrdev_region(my_uart_dev.dev_num, 1);
+    cdev_del(&AXIUart_dev.cdev);
+    unregister_chrdev_region(AXIUart_dev.dev_num, 1);
     return -1;
 
 
@@ -349,22 +341,25 @@ cleanup_cdev:
     return 0;
 }
 
-void  my_uart_cdev_exit(void) {
+void  AXIUart_cdev_exit(void) {
 	u16 Options = 0;
-	printk(KERN_INFO "my_uart: Exiting driver module\n");
-    // ... 1. 注销中断
-    // xdma_user_isr_unregister(xpdev->pdev, 0);
-	XUartNs550_DisableIntr(my_uart_dev.uart_instance);
+	printk(KERN_INFO "AXIUart: Exiting driver module\n");
+
 
     // ... 2. 注销字符设备
-    cdev_del(&my_uart_dev.cdev);
-    unregister_chrdev_region(my_uart_dev.dev_num, 1);
+    cdev_del(&AXIUart_dev.cdev);
+    unregister_chrdev_region(AXIUart_dev.dev_num, 1);
 	
+/* 	
+	// ... 1. 注销中断
+    // xdma_user_isr_unregister(xpdev->pdev, 0);
+	XUartNs550_DisableIntr(AXIUart_dev.uart_instance);
 	Options = XUartNs550_GetOptions(&UartNs550Instance);
 	Options = Options & ~(XUN_OPTION_DATA_INTR |XUN_OPTION_FIFOS_ENABLE);//| XUN_OPTION_LOOPBACK 
-	XUartNs550_SetOptions(&UartNs550Instance, Options);
-	printk(KERN_INFO "my_uart: Driver unloaded\n");
+	XUartNs550_SetOptions(&UartNs550Instance, Options); 
+	*/
+	printk(KERN_INFO "AXIUart: Driver unloaded\n");
 }
 
-//module_init(my_uart_init);
-//module_exit(my_uart_exit);
+//module_init(AXIUart_init);
+//module_exit(AXIUart_exit);
