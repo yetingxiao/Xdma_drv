@@ -172,7 +172,7 @@ int init_board_info()
 	vi53xx_inca_board_name_list[2].inca_dt = ES5342_ID;
 	vi53xx_inca_board_name_list[2].board_name = ES5342;
 	vi53xx_inca_board_name_list[2].count = 0;
-
+//	创建 	proc/$VI53XX_DEV_NAME/$VI53XX_DEV_BOARDS文件,/proc/$VI53XX_DEV_NAME/$VI53XX_DEV_MAPING文件	,/proc/vi53xx/mapping 	和 	/proc/vi53xx/boards
 	create_boards_info_proc();
 
 	return 0;

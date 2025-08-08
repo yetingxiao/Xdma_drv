@@ -29,7 +29,10 @@
 #include "xdma_mod.h"
 #include "xdma_cdev.h"
 #include "version.h"
-
+//======================================add by ycf 2025.8.4=============================================
+#include "xuart_cdev.h"
+//======================================add by ycf 2025.8.4=============================================
+#include "xparameters.h"
 #define DRV_MODULE_NAME		"xdma"
 #define DRV_MODULE_DESC		"Xilinx XDMA Reference Driver"
 
@@ -206,6 +209,29 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		u32 mask = (1 << (xpdev->user_max + 1)) - 1;
 
 		rv = xdma_user_isr_enable(hndl, mask);
+//======================================add by ycf 2025.8.4=============================================
+/*
+ * xdma_user_isr_register - register a user ISR handler
+ * It is expected that the xdma will register the ISR, and for the user
+ * interrupt, it will call the corresponding handle if it is registered and
+ * enabled.
+ *
+ * @pdev: ptr to the the pci_dev struct	
+ * @mask: bitmask of user interrupts (0 ~ 15)to be registered
+ *		bit 0: user interrupt 0
+ *		...
+ *		bit 15: user interrupt 15
+ *		any bit above bit 15 will be ignored.
+ * @handler: the correspoinding handler
+ *		a NULL handler will be treated as de-registeration
+ * @name: to be passed to the handler, ignored if handler is NULL`
+ * @dev: to be passed to the handler, ignored if handler is NULL`
+ * return < 0 in case of error
+ * TODO: exact error code will be defined later
+ */
+		printk(KERN_INFO "register user interrupt \n");	
+		xdma_user_isr_register(xpdev->pdev,0,(irq_handler_t)XUartNs550_InterruptHandler,NULL);
+//======================================add by ycf 2025.8.4=============================================
 		if (rv)
 			goto err_out;
 	}
@@ -385,7 +411,10 @@ static int xdma_mod_init(void)
 		desc_blen_max = XDMA_DESC_BLEN_MAX;
 	pr_info("desc_blen_max: 0x%x/%u, timeout: h2c %u c2h %u sec.\n",
 		desc_blen_max, desc_blen_max, h2c_timeout, c2h_timeout);
-
+//======================================add by ycf 2025.8.7=============================================	
+	printk(KERN_INFO "my_uart: Before Cdev Initializing\n");	
+	my_uart_cdev_init();
+//======================================add by ycf 2025.8.7=============================================	
 	rv = xdma_cdev_init();
 	if (rv < 0)
 		return rv;
@@ -399,6 +428,9 @@ static void xdma_mod_exit(void)
 	dbg_init("pci_unregister_driver.\n");
 	pci_unregister_driver(&pci_driver);
 	xdma_cdev_cleanup();
+//======================================add by ycf 2025.8.7=============================================
+	my_uart_cdev_exit();
+//======================================add by ycf 2025.8.7=============================================
 }
 
 module_init(xdma_mod_init);

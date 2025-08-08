@@ -202,7 +202,7 @@ int char_open(struct inode *inode, struct file *file)
 	/* create a reference to our char device in the opened file */
 	file->private_data = xcdev;
 //======================================add by ycf 2025.7.25=============================================	
-	file->f_op = &xdma_fops;
+	//file->f_op = &xdma_fops;
 //======================================add by ycf 2025.7.25=============================================	
 	return 0;
 }
@@ -267,15 +267,15 @@ static int create_sys_device(struct xdma_cdev *xcdev, enum cdev_type type)
 	else
 		last_param = engine ? engine->channel : 0;
 //======================================remove by ycf 2025.7.25=============================================
-/*	xcdev->sys_device = device_create(g_xdma_class, &xdev->pdev->dev,
+	xcdev->sys_device = device_create(g_xdma_class, &xdev->pdev->dev,
 		xcdev->cdevno, NULL, devnode_names[type], xdev->idx,
 		last_param);
-*/
+
 //======================================remove by ycf 2025.7.25=============================================
 //======================================add by ycf 2025.7.25=============================================
-	xcdev->sys_device = device_create(es_cdev->cdev_class, &xdev->pdev->dev,
+/* 	xcdev->sys_device = device_create(es_cdev->cdev_class, &xdev->pdev->dev,
 		xcdev->cdevno, NULL, es_cdev->device_name, xdev->idx,
-		last_param);
+		last_param); */
 //======================================add by ycf 2025.7.25=============================================
 	if (!xcdev->sys_device) {
 		pr_err("device_create(%s) failed\n", devnode_names[type]);
@@ -312,8 +312,8 @@ static int destroy_xcdev(struct xdma_cdev *cdev)
 	}
 
 	if (cdev->sys_device)
-		//device_destroy(g_xdma_class, cdev->cdevno);//======================================remove by ycf 2025.7.25=============================================
-		device_destroy(es_cdev->cdev_class, cdev->cdevno);//======================================add by ycf 2025.7.25=============================================
+		device_destroy(g_xdma_class, cdev->cdevno);//======================================remove by ycf 2025.7.25=============================================
+		//device_destroy(es_cdev->cdev_class, cdev->cdevno);//======================================add by ycf 2025.7.25=============================================
 
 	cdev_del(&cdev->cdev);
 
@@ -329,11 +329,11 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 	struct xdma_dev *xdev = xpdev->xdev;
 	dev_t dev;
 //======================================add by ycf 2025.7.25=============================================
-    struct device_info *info = &xcdev->info;
+/*     struct device_info *info = &xcdev->info;
     uint32_t instance;
 	void *reg_base = xdev->bar[0];
     uint32_t inca_dt; 
-	int n = 0;
+	int n = 0; */
 //======================================add by ycf 2025.7.25=============================================
 	spin_lock_init(&xcdev->lock);
 	/* new instance? */
@@ -359,7 +359,7 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 	xcdev->engine = engine;
 	xcdev->bar = bar;
 //======================================add by ycf 2025.7.25=============================================
-	info->read_reg = xdev->fops->read_reg;
+/* 	info->read_reg = xdev->fops->read_reg;
 	info->write_reg = xdev->fops->write_reg;
 
     inca_dt = info->read_reg(reg_base, DEVICE_BOARD_TYPE);
@@ -389,7 +389,7 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
     dbg_init("board serial     = 0x%x\n", info->serial);
     dbg_init("board led_blink  = 0x%x\n", info->led_blink);
 
-	sprintf(es_cdev->device_name, "%s_%d", get_board_name(inca_dt), es_cdev->board_inst);
+	sprintf(es_cdev->device_name, "%s_%d", get_board_name(inca_dt), es_cdev->board_inst); */
 //======================================add by ycf 2025.7.25=============================================
 	rv = config_kobject(xcdev, type);
 	if (rv < 0)
@@ -447,22 +447,22 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 	dbg_init("xcdev 0x%p, %u:%u, %s, type 0x%x.\n",
 		xcdev, xpdev->major, minor, xcdev->cdev.kobj.name, type);
 //======================================remove by ycf 2025.7.25=============================================
-/*
+
 	// create device on our class 
 	if (g_xdma_class) {
 		rv = create_sys_device(xcdev, type);
 		if (rv < 0)
 			goto del_cdev;
 	}
-*/
+
 //======================================remove by ycf 2025.7.25=============================================
 //======================================add by ycf 2025.7.25=============================================	
-	if (es_cdev->cdev_class) {
+/* 	if (es_cdev->cdev_class) {
         rv = create_sys_device(xcdev,type);
         if (rv < 0)
             goto del_cdev;
-    }
-	create_proc_device(xcdev, es_cdev->device_name);
+    }//	创建 	proc/$VI53XX_DEV_NAME/$(es_cdev->device_name)	文件/proc/vi53xx/es5311_0
+	create_proc_device(xcdev, es_cdev->device_name); */
 //======================================add by ycf 2025.7.25=============================================
 	return 0;
 
@@ -695,7 +695,7 @@ fail:
 int xdma_cdev_init(void)
 {
 //======================================add by ycf 2025.7.25=============================================
-	int i, rv;
+/* 	int i, rv;
 	es_cdev  = kmalloc(sizeof(*es_cdev), GFP_KERNEL);
 	if (!es_cdev)
 		return -1;
@@ -717,7 +717,7 @@ int xdma_cdev_init(void)
 	}
 /////////////////// 需要特别注意主 次设备号分配	
 	for (i=0; i<BOARD_TEPE_NUM; i++) {
-		/* allocate a dynamically allocated char device node */
+		// allocate a dynamically allocated char device node 
 		rv = alloc_chrdev_region(&es_cdev->dev, XDMA_MINOR_BASE,XDMA_MINOR_COUNT, XDMA_NODE_NAME);
 		if (rv) {
 			pr_err("unable to allocate cdev region %d.\n", rv);
@@ -725,10 +725,10 @@ int xdma_cdev_init(void)
 		}
 
 		es_cdev->major[i] = MAJOR(es_cdev->dev);
-	}
+	} */
 //======================================add by ycf 2025.7.25=============================================
 //======================================remove by ycf 2025.7.25=============================================
-/*
+
 #if defined(RHEL_RELEASE_CODE)
     #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9, 4))
         g_xdma_class = class_create(XDMA_NODE_NAME);
@@ -745,7 +745,7 @@ int xdma_cdev_init(void)
 		return -EINVAL;
 	}
 
-*/
+
 //======================================remove by ycf 2025.7.25=============================================
 	/* using kmem_cache_create to enable sequential cleanup */
 	cdev_cache = kmem_cache_create("cdev_cache",
@@ -765,13 +765,13 @@ void xdma_cdev_cleanup(void)
 	if (cdev_cache)
 		kmem_cache_destroy(cdev_cache);
 //======================================remove by ycf 2025.7.25=============================================
-/*
+
 	if (g_xdma_class)
 		class_destroy(g_xdma_class);
-*/
+
 //======================================remove by ycf 2025.7.25=============================================
 //======================================add by ycf 2025.7.25=============================================
-	int i; 
+/* 	int i; 
 
     if (es_cdev->cdev_class)
 		class_destroy(es_cdev->cdev_class);
@@ -783,6 +783,6 @@ void xdma_cdev_cleanup(void)
 	if (es_cdev) {
 		kfree(es_cdev);
 		es_cdev = NULL;
-	}
+	} */
 //======================================add by ycf 2025.7.25=============================================
 }

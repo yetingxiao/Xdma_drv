@@ -227,7 +227,7 @@ int create_proc_device(void *device, const char *name)
 
 	return 0;
 }
-
+//	创建 	/proc/$VI53XX_DEV_NAME/$VI53XX_DEV_MAPING文件			/proc/vi53xx/mapping
 static int create_instance_board_id_mmap(void)
 {
 	if (!parent_dir) {
@@ -244,7 +244,7 @@ remove_proc:
 	remove_proc_subtree(VI53XX_DEV_NAME, NULL);
 	return -1;
 }
-
+//	创建 	proc/$VI53XX_DEV_NAME/$VI53XX_DEV_BOARDS文件			/proc/vi53xx/boards
 static int create_board_proc(void)
 {
 	parent_dir = proc_mkdir(VI53XX_DEV_NAME, NULL);		// 		proc/$VI53XX_DEV_NAME根目录
@@ -262,7 +262,7 @@ remove_proc:
 	remove_proc_subtree(VI53XX_DEV_NAME, NULL);
 	return -1;
 }
-
+//	创建 	proc/$VI53XX_DEV_NAME/$VI53XX_DEV_BOARDS文件,/proc/$VI53XX_DEV_NAME/$VI53XX_DEV_MAPING文件	,/proc/vi53xx/mapping 	和 	/proc/vi53xx/boards
 int create_boards_info_proc(void)
 {
 	int ret;

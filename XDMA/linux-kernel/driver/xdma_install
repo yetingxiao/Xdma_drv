@@ -1,4 +1,4 @@
-#!bin/bash
+#!/bin/bash
 #
 #Start/stop script for xdma module
 #
@@ -28,40 +28,41 @@ MODULE_NAME=xdma
 BOARDS_FOUND=0
 
 . /lib/lsb/init-functions
-case “S1“ in
-	start)
-		log_action_begin_msg "Loading xdma module"
-		echo "Loading xdma module and removing remnant device files..." > $STATUS_OUT
-		MODULE OPTIONS=
-		if [-r /etc/labcar.conf];then
-			. /etc/labcar.conf
-			case "SRTPC LOG LEVE" in
-				debug|info)
-					MODULE OPTIONS="xdma debug=0"
-				;;
-			esac
-		fi
-		insmod /opt/etas/moduleS/$MODULE_NAME.ko $MODULE_OPTIONS
-		log_action_end_msg 0
-	stop)
-		log_action_begin_msg_msg "Removing xdma module" 
-		rmmod $MODULE_NAME
-		log_action_end_msg 0
-		;;
-	status)
-		echo "Checking module\n" > $STATUS_OUT
-		lsmod | grep xdma
-		;;
-	reload)
-		$0 stop && $o start || exit 1
-		;;
-	restart)
-		$0 stop && so start || exit 1
-		;;
-		*)
-		echo "Usage:$0 {start|stop|status|restart|reload}"
-		exit 1
-		;;
+case "$1" in
+  start)
+    log_action_begin_msg "Loading xdma module"	  
+    echo "Loading vi53xx module and removing remnant device files..." > $STATUS_OUT
+    MODULE_OPTIONS=
+    if [ -r /etc/labcar.conf ]; then
+	    . /etc/labcar.conf
+	    case "$RTPC_LOG_LEVEL" in
+		    debug|info)
+    			MODULE_OPTIONS="xdma_debug=0"
+		    ;;
+	    esac
+    fi
+    insmod /opt/etas/modules/$MODULE_NAME.ko $MODULE_OPTIONS 	
+    log_action_end_msg 0
+    ;;
+  stop)
+    log_action_begin_msg "Removing xdma module"
+    rmmod $MODULE_NAME 
+    log_action_end_msg 0
+    ;;
+  status)
+    echo "Checking module\n" > $STATUS_OUT
+    lsmod | grep xdma
+    ;;
+  reload)
+    $0 stop && $0 start || exit 1
+    ;;
+  restart)
+    $0 stop && $0 start || exit 1
+    ;;
+    *)
+    echo "Usage: $0 {start|stop|status|restart|reload}"
+    exit 1
+    ;;
 esac
 
 exit 0
