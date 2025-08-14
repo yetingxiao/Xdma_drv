@@ -88,8 +88,8 @@ extern "C" {
  */
 #define XUN_IER_MODEM_STATUS	0x00000008 /**< Modem status interrupt */
 #define XUN_IER_RX_LINE		0x00000004 /**< Receive status interrupt */
-#define XUN_IER_TX_EMPTY	0x00000002 /**< Transmitter empty interrupt */
-#define XUN_IER_RX_DATA		0x00000001 /**< Receiver data available */
+#define XUN_IER_TX_EMPTY	0x00000002 /**< Transmitter empty interrupt 发送缓冲区空中断*/
+#define XUN_IER_RX_DATA		0x00000001 /**< Receiver data available 接收缓冲区有数据中断*/
 /* @} */
 
 /**
@@ -140,20 +140,49 @@ extern "C" {
 #define XUN_MCR_DTR		0x00000001 /**< DTR signal */
 /* @} */
 
-/**
+/**接收器和发射器的当前状态
  * @name Line Status Register(LSR) mask(s)
  * @{
  */
-#define XUN_LSR_RX_FIFO_ERROR	0x00000080 /**< An errored byte is in FIFO */
-#define XUN_LSR_TX_EMPTY	0x00000040 /**< Transmitter is empty */
-#define XUN_LSR_TX_BUFFER_EMPTY 0x00000020 /**< Transmit holding reg empty */
-#define XUN_LSR_BREAK_INT	0x00000010 /**< Break detected interrupt */
-#define XUN_LSR_FRAMING_ERROR	0x00000008 /**< Framing error on current byte */
-#define XUN_LSR_PARITY_ERROR	0x00000004 /**< Parity error on current byte */
-#define XUN_LSR_OVERRUN_ERROR	0x00000002 /**< Overrun error on receive FIFO */
+ /**< An errored byte is in FIFO RCVR FIFO 错误(1)：RCVR FIFO 至少包含一个接收器错误（奇偶校验、帧错误、中断条件）。*/
+#define XUN_LSR_RX_FIFO_ERROR	0x00000080 
+/*
+*< Transmitter is empty 
+0 - THR 或发送器移位寄存器		包含数据。
+1 - THR 和发送器移位寄存器		为空。
+在 FIFO 模式下，发送器 FIFO 和移位寄存器均为空。
+*/
+#define XUN_LSR_TX_EMPTY	0x00000040 
+/*
+*< Transmit holding reg empty
+0 - THR 或发送器FIFO中		有数据需要发送。
+1 - THR 为空。在FIFO模式下		发送器 FIFO 为空。 
+*/
+#define XUN_LSR_TX_BUFFER_EMPTY 0x00000020 
+/*
+*< Break detected interrupt 当Sin保持低电平并持续整个字符时间（起始位 + 数据位 + 奇偶校验位 + 停止位）时，设置此错误。
+*在FIFO模式下，此错误与FIFO中的特定字符相关联。如果Sin进入标记状态并接收到下一个有效的起始位，则启用下一个字符传输。
+*/
+#define XUN_LSR_BREAK_INT	0x00000010 
+ /*
+*< Framing error on current byte 字符缺少停止位。
+发生帧错误时，UART 会尝试重新同步，并假设帧错误是由下一个字符的起始位引起的，因此它会对起始位进行两次采样，然后接收后续数据。
+在FIFO模式下，此错误与 FIFO 中的特定字符相关*/
+#define XUN_LSR_FRAMING_ERROR	0x00000008
+/*
+*< Parity error on current byte表示接收到的数据字符不具有由偶校验选择位选择的正确的偶校验或奇校验。
+在 FIFO 模式下，此错误与 FIFO 中的特定字符相关 
+*/
+#define XUN_LSR_PARITY_ERROR	0x00000004 
+/*
+*< Overrun error on receive FIFO 在接收到下一个字符之前未读取RBR，从而破坏了前一个字符,发生溢出错误。
+在FIFO模式下，数据持续填充FIFO，超出触发级别.
+只有在 FIFO已满且下一个字符已完全接收到移位寄存器后，才会发生溢出错误。
+移位寄存器中的字符会被覆盖，但不会传输到 FIFO。
+*/
+#define XUN_LSR_OVERRUN_ERROR	0x00000002 
 #define XUN_LSR_DATA_READY	0x00000001 /**< Receive data ready */
-#define XUN_LSR_ERROR_BREAK	0x0000001E /**< Errors except FIFO error and
-						break detected */
+#define XUN_LSR_ERROR_BREAK	0x0000001E /**< Errors except FIFO error and break detected */
 /* @} */
 
 #define XUN_DIVISOR_BYTE_MASK	0x000000FF
@@ -282,6 +311,11 @@ extern "C" {
 
 /****************************************************************************/
 /**
+* 判断接收器和/或 FIFO 中是否有接收数据。
+*
+* @param BaseAddress 包含设备的基地址。
+*
+* @return 如果有接收数据，则返回 TRUE；否则返回 FALSE。
 * Determine if there is receive data in the receiver and/or FIFO.
 *
 * @param	BaseAddress contains the base address of the device.
@@ -297,6 +331,11 @@ extern "C" {
 
 /****************************************************************************/
 /**
+* 确定是否可以使用发射器发送一个字节的数据。
+*
+* @param BaseAddress 包含设备的基地址。
+*
+* @return 如果可以发送一个字节，则返回 TRUE；否则，返回 FALSE。
 * Determine if a byte of data can be sent with the transmitter.
 *
 * @param	BaseAddress contains the base address of the device.

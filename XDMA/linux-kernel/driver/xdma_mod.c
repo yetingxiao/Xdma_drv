@@ -32,9 +32,22 @@
 //======================================add by ycf 2025.8.4=============================================
 #include "xuart_cdev.h"
 //======================================add by ycf 2025.8.4=============================================
+//======================================add by ycf 2025.8.12=============================================
+#include "board_info.h"
+
+int vi53xx_debug = 0;
+module_param(vi53xx_debug, int, 0644);
+MODULE_PARM_DESC(vi53xx_debug, "Activate debugging for vi53xx module (default:0=off).");
+
+
+#define DRV_MODULE_NAME		    "vi53xx"
+#define DRV_MODULE_DESC	        "driver of es53xx designed by vehinfo(VI)"
+#define RTPC_XDMA_VID           0x10ee
+#define RTPC_XDMA_DID           0x16F2
+//======================================add by ycf 2025.8.12=============================================
 #include "xparameters.h"
-#define DRV_MODULE_NAME		"xdma"
-#define DRV_MODULE_DESC		"Xilinx XDMA Reference Driver"
+//#define DRV_MODULE_NAME		"xdma"
+//#define DRV_MODULE_DESC		"Xilinx XDMA Reference Driver"
 
 static char version[] =
 	DRV_MODULE_DESC " " DRV_MODULE_NAME " v" DRV_MODULE_VERSION "\n";
@@ -45,6 +58,7 @@ MODULE_VERSION(DRV_MODULE_VERSION);
 MODULE_LICENSE("Dual BSD/GPL");
 
 //======================================add by ycf 2025.7.27=============================================
+extern const struct  pci_info vi53xx_info;
 static DEFINE_SEMAPHORE(vi53xx_mutex);
 static void vi53xx_lock(void)
 {
@@ -57,10 +71,141 @@ static void vi53xx_unlock(void)
 }
 //======================================add by ycf 2025.7.27=============================================
 
+//======================================add by ycf 2025.8.12=============================================
+
+void *xdma_device_map(const char *mname, struct pci_dev *pdev)
+{//类似功能void *xdma_device_open(const char *mname, struct pci_dev *pdev, int *user_max,int *h2c_channel_max, int *c2h_channel_max)
+	struct xdma_dev *xdev = NULL;
+	int rv = 0;
+
+	/* allocate zeroed device book keeping structure */
+	xdev = alloc_dev_instance(pdev);
+	if (!xdev)
+		return NULL;
+
+	xdev->mod_name = mname;
+
+    platform_setup_fops(xdev);
+
+	rv = pci_enable_device(pdev);
+	if (rv) {
+		dbg_init("pci_enable_device() failed, %d.\n", rv);
+		goto free_xdev;
+	}
+
+	/* enable bus master capability */
+	pci_set_master(pdev);
+
+	rv = request_regions(xdev, pdev);
+	if (rv)
+		goto err_regions;
+
+	rv = map_bars(xdev, pdev);
+	if (rv)
+		goto err_map;
+
+	rv = set_dma_mask(pdev);
+	if (rv)
+		goto err_mask;
+
+	return (void *)xdev;
+
+err_mask:
+	unmap_bars(xdev, pdev);
+err_map:
+	if (xdev->got_regions)
+		pci_release_regions(pdev);
+err_regions:
+	if (!xdev->regions_in_use)
+		pci_disable_device(pdev);
+free_xdev:
+	kfree(xdev);
+
+	return NULL;
+}
+
+void xdma_device_umap(struct pci_dev *pdev, void *dev_xdev)
+{//功能类似void xdma_device_close(struct pci_dev *pdev, void *dev_hndl)
+	struct xdma_dev *xdev = (struct xdma_dev *)dev_xdev;
+
+	dbg_init("pdev 0x%p, xdev 0x%p.\n", pdev, dev_xdev);
+
+	if (!dev_xdev)
+            return;
+
+	unmap_bars(xdev, pdev);
+
+	if (xdev->got_regions) {
+        dbg_init("pci_release_regions 0x%p.\n", pdev);
+	    pci_release_regions(pdev);
+	}
+
+	if (!xdev->regions_in_use) {
+        dbg_init("pci_disable_device 0x%p.\n", pdev);
+	    pci_disable_device(pdev);
+	}
+
+	kfree(xdev);
+}
+
+static int _xdma_channel_init(struct xdma_dev *xdev, struct xdma_cfg_info *cfg, struct pci_info *vi53xx_xdma_info)
+{
+    vi53xx_xdma_info->setup(xdev->pdev, cfg);
+
+    xdev->fops->poll_init(xdev, cfg->channel, cfg->direction);
+    xdev->fops->stop(xdev, cfg->channel, cfg->direction);
+    xdev->fops->create_transfer(xdev, cfg->channel, cfg);
+
+    return 0;
+}
+
+static void  init_dma_cfg(struct xdma_cfg_info **dma_cfg, int direction, int channel)
+{
+    dma_cfg[direction][channel].direction  = direction;
+    dma_cfg[direction][channel].channel = channel +1;
+}
+
+static int xdma_channel_init(struct xdma_pci_dev *xpdev, struct pci_info *info)
+{
+    int channel = 0;
+    int direction;
+    struct xdma_dev *xdev = xpdev->xdev;
+    struct xdma_cfg_info **dma_cfg = xpdev->dma_cfg;
+
+    if (!info)
+        return -1;
+
+    for (channel = 0; channel < XDMA_CHANNEL_NUM; channel++) { /*use CH1 CH2 --> XDMA_CHANNEL_NUM*/
+        /* C2H */
+        direction = C2H_DIR;
+        init_dma_cfg(dma_cfg, direction, channel);
+        _xdma_channel_init(xdev, &dma_cfg[direction][channel], info);
+
+	    /* H2C */
+        direction = H2C_DIR;
+        init_dma_cfg(dma_cfg, direction, channel);
+        if (dma_cfg[direction][channel].channel == CH1)
+            _xdma_channel_init(xdev, &dma_cfg[direction][channel], info);
+    }
+
+    return 0;
+}
+
+static void dump_vi53xx_device_info(struct pci_dev *pdev)
+{
+	pr_info("0x%p ,  device found - pci bus: %d - id: 0x%04x - devfn: 0x%04x - pcie_type: 0x%04x.\n",
+		    pdev, pdev->bus->number, pdev->device, pdev->devfn, pci_pcie_type(pdev));
+}
+//======================================add by ycf 2025.8.12=============================================
+
 /* SECTION: Module global variables */
 static int xpdev_cnt;
-
-static const struct pci_device_id pci_ids[] = {
+//
+struct pci_device_id pci_ids[] = {
+	//vender/device id确认使用xilinx 0x10ee, 0x16f2 ,0x16f2 es5311  或者PCI_DEVICE(RTPC_XDMA_VID, RTPC_XDMA_DID)
+    { PCI_DEVICE(0x10ee, 0x16f2),.driver_data = (kernel_ulong_t) &vi53xx_info },
+	//vender/device id确认使用xilinx 0x10ee, 0x16f3 ,0x16f3 es5341
+	{ PCI_DEVICE(0x10ee, 0x16f3), },
 	{ PCI_DEVICE(0x10ee, 0x9048), },
 	{ PCI_DEVICE(0x10ee, 0x9044), },
 	{ PCI_DEVICE(0x10ee, 0x9042), },
@@ -120,10 +265,6 @@ static const struct pci_device_id pci_ids[] = {
 	{ PCI_DEVICE(0x10ee, 0x4B28), },
 
 	{ PCI_DEVICE(0x10ee, 0x2808), },
-    //vender/device id确认使用xilinx 0x10ee, 0x16f2 ,0x16f2 es5311
-    { PCI_DEVICE(0x10ee, 0x16f2), },
-	//vender/device id确认使用xilinx 0x10ee, 0x16f3 ,0x16f3 es5341
-	{ PCI_DEVICE(0x10ee, 0x16f3), },
 #ifdef INTERNAL_TESTING
 	{ PCI_DEVICE(0x1d0f, 0x1042), 0},
 #endif
@@ -132,6 +273,7 @@ static const struct pci_device_id pci_ids[] = {
 	{ PCI_DEVICE(0x1d0f, 0xf001), },
 	{0,}
 };
+//int id_table_size=sizeof(pci_ids) / sizeof(pci_ids[0]);
 MODULE_DEVICE_TABLE(pci, pci_ids);
 
 static void xpdev_free(struct xdma_pci_dev *xpdev)
@@ -161,7 +303,9 @@ static struct xdma_pci_dev *xpdev_alloc(struct pci_dev *pdev)
 	xpdev->user_max = MAX_USER_IRQ;
 	xpdev->h2c_channel_max = XDMA_CHANNEL_NUM_MAX;
 	xpdev->c2h_channel_max = XDMA_CHANNEL_NUM_MAX;
-
+//======================================add by ycf 2025.8.13=============================================	
+	xpdev->bus = pdev->bus->number;
+//======================================add by ycf 2025.8.13=============================================
 	xpdev_cnt++;
 	return xpdev;
 }
@@ -178,12 +322,29 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (!xpdev)
 		return -ENOMEM;
 
-	hndl = xdma_device_open(DRV_MODULE_NAME, pdev, &xpdev->user_max,
-			&xpdev->h2c_channel_max, &xpdev->c2h_channel_max);
+
+//======================================add by ycf 2025.8.13=============================================
+    struct pci_info *vi53xx_xdma_info = (struct pci_info *)(id->driver_data);
+    dump_vi53xx_device_info(pdev);//pdev->device 0x16f2区分板卡
+	//xdev = xdma_device_map(DRV_MODULE_NAME, pdev);功能等同xdma_device_open
+//======================================add by ycf 2025.8.13=============================================
+	hndl = xdma_device_open(DRV_MODULE_NAME, pdev, &xpdev->user_max,&xpdev->h2c_channel_max, &xpdev->c2h_channel_max);
+	//hndl->fops = &rtpc_xdma_fops;
 	if (!hndl) {
+		pr_warn("xdma_device_open Failed!\n");
 		rv = -EINVAL;
 		goto err_out;
 	}
+//======================================add by ycf 2025.8.13=============================================
+	xpdev->xdev = hndl;
+    xpdev->dma_cfg[H2C_DIR] = ((struct xdma_dev *)hndl)->H2C_dma_cfg;
+    xpdev->dma_cfg[C2H_DIR] = ((struct xdma_dev *)hndl)->C2H_dma_cfg;
+
+    if (xdma_channel_init(xpdev, vi53xx_xdma_info)) {
+	    rv = -EINVAL;
+        goto err_out;
+    }
+//======================================add by ycf 2025.8.13=============================================
 
 	if (xpdev->user_max > MAX_USER_IRQ) {
 		pr_err("Maximum users limit reached\n");
@@ -278,6 +439,9 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		IS_KERNEL_MAPPED=1;
 		//======================================add by ycf 2025.8.4=============================================
 	}
+	
+	
+	
 //======================================add by ycf 2025.7.27=============================================
 	vi53xx_lock();
 	list_add(&xpdev->list, &pcie_device_list);
@@ -285,8 +449,8 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 //======================================add by ycf 2025.7.27=============================================	
 
 //======================================add by ycf 2025.8.7=============================================	
-		printk(KERN_INFO "AXIUart: Before Cdev Initializing\n");	
-		AXIUart_cdev_init();
+	printk(KERN_INFO "AXIUart: Before Cdev Initializing\n");	
+	AXIUart_cdev_init();
 //======================================add by ycf 2025.8.7=============================================
 
 	return 0;
@@ -307,7 +471,10 @@ static void remove_one(struct pci_dev *pdev)
 	xpdev = dev_get_drvdata(&pdev->dev);
 	if (!xpdev)
 		return;
-
+//======================================add by ycf 2025.8.13=============================================
+	//vi53xx_dev_clean(xpdev);	//不必要xpdev_free(xpdev);中执行xpdev_destroy_interfaces(xpdev); 中会执行vi53xx_dev_clean(xpdev)
+	xdma_free_resource(xpdev->pdev, xpdev->xdev);
+//======================================add by ycf 2025.8.13=============================================
 	pr_info("pdev 0x%p, xdev 0x%p, 0x%p.\n",
 		pdev, xpdev, xpdev->xdev);
 	xpdev_free(xpdev);
@@ -425,6 +592,10 @@ static struct pci_driver pci_driver = {
 
 static int xdma_mod_init(void)
 {
+	if (init_board_info() < 0) {
+	    pr_info("Init board info fail. no mem\n");
+        return 0;
+	}
 	int rv;
 
 	pr_info("%s", version);
@@ -439,6 +610,8 @@ static int xdma_mod_init(void)
 		return rv;
 
 	return pci_register_driver(&pci_driver);
+	
+	//vi53xx_xdma_mod_init();
 }
 
 static void xdma_mod_exit(void)
@@ -448,6 +621,8 @@ static void xdma_mod_exit(void)
 	pci_unregister_driver(&pci_driver);
 	xdma_cdev_cleanup();
 //======================================add by ycf 2025.8.7=============================================
+	//vi53xx_xdma_mod_exit();
+	board_info_exit();
 	AXIUart_cdev_exit();
 //======================================add by ycf 2025.8.7=============================================
 }

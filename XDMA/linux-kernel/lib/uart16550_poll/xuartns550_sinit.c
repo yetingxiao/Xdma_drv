@@ -51,7 +51,11 @@
 
 /****************************************************************************/
 /**
+** 根据唯一设备 ID 查找设备配置。系统会生成一个表，其中包含系统中每个设备的配置信息。
 *
+* @param DeviceId 包含要查找配置的设备 ID。
+*
+* @return 指向找到的配置的指针；如果未找到指定的设备 ID，则返回 NULL。
 * Looks up the device configuration based on the unique device ID. A table
 * contains the configuration info for each device in the system.
 *
@@ -100,6 +104,20 @@ XUartNs550_Config *XUartNs550_LookupConfig(u16 DeviceId)
 /****************************************************************************/
 /**
 *
+* 初始化特定的 XUartNs550 实例，使其可供使用。 设备的数据格式默认设置为 8 个数据位、1 个停止位和无奇偶校验。
+* 如果定义了符号，则将波特率设置为由XPAR_DEFAULT_BAUD_RATE 指定的默认值，否则设置为19.2K 波特。
+* 如果设备具有 FIFO（16550 个），则启用它们并将接收 FIFO 阈值设置为 8 字节。
+
+*驱动程序的默认工作模式为轮询模式。
+*
+* @param InstancePtr 是指向 XUartNs550 实例的指针。
+* @param DeviceId 是此 XUartNs550 实例控制的设备的唯一 ID。传入设备ID会将通用 XUartNs550 实例关联到调用者或应用程序开发者选择的特定设备。
+*
+* @return
+*
+* - 如果初始化成功，则返回 XST_SUCCESS
+* - 如果在配置表中找不到设备 ID，则返回 XST_DEVICE_NOT_FOUND
+* - 如果波特率无法实现，则返回 XST_UART_BAUD_ERROR，因为输入时钟频率无法被可接受的误差量整除
 * Initializes a specific XUartNs550 instance such that it is ready to be used.
 * The data format of the device is setup for 8 data bits, 1 stop bit, and no
 * parity by default. The baud rate is set to a default value specified by

@@ -53,7 +53,16 @@
 
 /****************************************************************************/
 /**
+** 设置指定 UART 的数据格式。数据格式包括波特率、数据位数、停止位数和奇偶校验。调用者有责任确保调用此函数时 UART 未发送或接收数据。
 *
+* @param InstancePtr 是指向 XUartNs550 实例的指针。
+* @param FormatPtr 是指向包含待设置数据格式的格式结构体的指针。
+*
+* @return
+*
+* - 如果数据格式设置成功，则返回 XST_SUCCESS。
+* - XST_UART_BAUD_ERROR 表示由于波特率和输入时钟频率存在错误，无法设置波特率。
+* - 如果其中一个参数无效，则返回 XST_INVALID_PARAM。
 * Sets the data format for the specified UART. The data format includes the
 * baud rate, number of data bits, number of stop bits, and parity. It is the
 * caller's responsibility to ensure that the UART is not sending or receiving
@@ -164,7 +173,10 @@ int XUartNs550_SetDataFormat(XUartNs550 *InstancePtr,
 }
 /****************************************************************************/
 /**
+** 获取指定 UART 的数据格式。该数据格式包括波特率、数据位数、停止位数和奇偶校验。
 *
+* @param InstancePtr 是指向 XUartNs550 实例的指针。
+* @param FormatPtr 是指向格式结构的指针，该结构将包含此调用完成后的数据格式。
 * Gets the data format for the specified UART. The data format includes the
 * baud rate, number of data bits, number of stop bits, and parity.
 *

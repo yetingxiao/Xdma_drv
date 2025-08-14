@@ -54,7 +54,12 @@ extern "C" {
 
 
 /****************************************************************************
+** 此宏根据指定的线路状态寄存器值更新状态。更新的统计数据基于此寄存器中的位。
+*它还会保持最新错误实例变量的更新。
+* 此宏的目的是允许组件的模块之间进行通用处理，其开销比所需模块中的函数更小。
 *
+* @param InstancePtr 是指向 XUartNs550 实例的指针。
+* @param CurrentLsr 包含用于更新的线路状态寄存器值。
 * This macro updates the status based upon a specified line status register
 * value. The stats that are updated are based upon bits in this register. It
 * also keeps the last errors instance variable updated. The purpose of this

@@ -57,7 +57,10 @@
 
 /****************************************************************************/
 /**
+** 此函数通过 UART 发送一个数据字节。此函数以轮询模式运行，并阻塞直至数据被放入 UART 发送保持寄存器。
 *
+* @param BaseAddress 包含 UART 的基地址。
+* @param Data 包含要发送的数据字节。
 * This function sends a data byte with the UART. This function operates in the
 * polling mode and blocks until the data has been put into the UART transmit
 * holding register.
@@ -73,6 +76,7 @@
 void XUartNs550_SendByte(UINTPTR BaseAddress, u8 Data)
 {
 	/*
+	* 等到我们知道该字节可以发送为止，550 没有任何方法来判断 FIFO 中有多少空间，因此我们必须等待它为空
 	 * Wait til we know that the byte can be sent, the 550 does not have any
 	 * way to tell how much room is in the FIFO such that we must wait for
 	 * it to be empty
@@ -87,7 +91,11 @@ void XUartNs550_SendByte(UINTPTR BaseAddress, u8 Data)
 
 /****************************************************************************/
 /**
+** 此函数从 UART 接收一个字节。它以轮询模式运行，并阻塞直至接收到一个数据字节。
 *
+* @param BaseAddress 包含 UART 的基地址。
+*
+* @return UART 接收到的数据字节。
 * This function receives a byte from the UART. It operates in a polling mode
 * and blocks until a byte of data is received.
 *
@@ -150,6 +158,7 @@ void XUartNs550_SetBaud(UINTPTR BaseAddress, u32 InputClockHz, u32 BaudRate)
 	BaudMSB = (Divisor >> 8) & XUN_DIVISOR_BYTE_MASK;
 
 	/*
+	* 获取线路控制寄存器的内容并设置除数锁存器访问位，以便设置波特率
 	 * Get the line control register contents and set the divisor latch
 	 * access bit so the baud rate can be set
 	 */
@@ -166,7 +175,7 @@ void XUartNs550_SetBaud(UINTPTR BaseAddress, u32 InputClockHz, u32 BaudRate)
 	XUartNs550_WriteReg(BaseAddress, XUN_DLM_OFFSET, BaudMSB);
 	XUartNs550_WriteReg(BaseAddress, XUN_DLL_OFFSET, BaudLSB);
 
-	/*
+	/** 清除除数锁存器访问位 DLAB，以允许正常操作并写入线路控制寄存器
 	 * Clear the Divisor latch access bit, DLAB to allow nornal
 	 * operation and write to the line control register
 	 */

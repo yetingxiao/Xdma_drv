@@ -65,6 +65,9 @@ extern unsigned int c2h_timeout;
 //======================================remove by ycf 2025.7.26=============================================
 //struct xdma_pci_dev 和 struct xdma_cdev  更换到libxdma.h中定义
 //======================================remove by ycf 2025.7.26=============================================
+extern const struct  pci_info vi53xx_info;
+//extern int id_table_size;
+//extern const struct pci_device_id pci_ids[];
 
 struct cdev_async_io {
 	struct kiocb *iocb;

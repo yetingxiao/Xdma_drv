@@ -59,6 +59,16 @@ static u8 ReturnString[XUN_TOTAL_BYTES + 1];
 /****************************************************************************/
 /**
 *
+* 此函数对驱动程序和硬件设备运行自检。此自检执行本地环回，并验证数据是否可以发送和接收。
+*
+* 测试结束时，统计信息将被清除。此测试的执行时间与调用此函数前设置的波特率成正比。
+*
+* @param InstancePtr 是指向 XUartNs550 实例的指针。
+*
+* @return
+*
+* - 如果测试成功，则返回 XST_SUCCESS
+* - 如果测试未能环回数据，则返回 XST_UART_TEST_FAIL
 * This functions runs a self-test on the driver and hardware device. This self
 * test performs a local loopback and verifies data can be sent and received.
 *

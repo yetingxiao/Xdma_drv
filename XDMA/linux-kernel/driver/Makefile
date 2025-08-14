@@ -2,6 +2,7 @@ SHELL = /bin/bash
 #
 # optional makefile parameters:
 # - DEBUG=<0|1>,	enable verbose debug print-out in the driver
+#DEBUG	=	0
 # - config_bar_num=,	xdma pci config bar number
 # - xvc_bar_num=,	xvc pci bar #
 # - xvc_bar_offset=,	xvc register base offset
@@ -75,7 +76,7 @@ TARGET_MODULE:=xdma
 #TARGET_MODULE:=vi53xx
 ####################### add by ycf
 ####################### add by ycf
-
+#libxdmaVi53xx.c vi53xx_cndev_core.c 
 obj-ko := $(TARGET_MODULE).ko
 obj-c := libxdma.c xdma_cdev.c cdev_ctrl.c cdev_events.c cdev_sgdma.c cdev_xvc.c cdev_bypass.c xdma_mod.c xdma_thread.c board_info.c vi53xx_proc.c vi53xx_xdma_ctrl.c  $(UART_SRC)
 obj-tar :=  xdma_module_src.tgz
@@ -117,9 +118,9 @@ EXTRA_CFLAGS += $(INCLUDES)
 
 #EXTRA_CFLAGS += -ggdb3 -fPIC -O0 -Wall  -Wpointer-arith 
 ########################## add by ycf
-
+#libxdmaVi53xx.o vi53xx_cndev_core.o
 ifneq ($(KERNELRELEASE),)
-	$(TARGET_MODULE)-objs := libxdma.o xdma_cdev.o cdev_ctrl.o cdev_events.o cdev_sgdma.o cdev_xvc.o cdev_bypass.o xdma_mod.o xdma_thread.o board_info.o vi53xx_proc.o vi53xx_xdma_ctrl.o  $(UART_OBJS) 
+	$(TARGET_MODULE)-objs := libxdma.o xdma_cdev.o cdev_ctrl.o cdev_events.o cdev_sgdma.o cdev_xvc.o cdev_bypass.o xdma_mod.o xdma_thread.o board_info.o vi53xx_proc.o vi53xx_xdma_ctrl.o   $(UART_OBJS) 
 	obj-m := $(TARGET_MODULE).o 
 else
 	BUILDSYSTEM_DIR:=/lib/modules/$(shell uname -r)/build

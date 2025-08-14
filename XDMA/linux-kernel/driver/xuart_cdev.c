@@ -304,6 +304,7 @@ int  AXIUart_cdev_init(void) {
     printk(KERN_INFO "AXIUart: Device registered with major %d, minor %d\n", MAJOR(AXIUart_dev.dev_num), MINOR(AXIUart_dev.dev_num));
 
     // 3. 硬件初始化
+	/* 
 	result=XUartNs550_Initialize(AXIUart_dev.uart_instance,UART_DEVICE_ID);
     if (result != XST_SUCCESS) {
         printk(KERN_ERR "AXIUart: XUartNs550_CfgInitialize failed with code %d\n", result);
@@ -327,6 +328,7 @@ int  AXIUart_cdev_init(void) {
 	
 	
     XUartNs550_EnableIntr(AXIUart_dev.uart_instance);
+	 */
 
     printk(KERN_INFO "AXIUart: Driver loaded successfully\n");
     return 0;

@@ -25,17 +25,8 @@
 #include "vi53xx_proc.h"
 #include "board_info.h"
 #include "vi53xx_xdma_ctrl.h"
-/*
-	struct es_cdev {
-	int major[BOARD_TEPE_NUM];						//						major number
-	struct class *cdev_class; 						//replace 				static struct class *g_xdma_class;
-	dev_t dev;										//replace 				alloc_chrdev_region(&dev, XDMA_MINOR_BASE,XDMA_MINOR_COUNT, XDMA_NODE_NAME);
-	char device_name[32]; 							//replace 				const char * const devnode_names[type]
-	uint32_t board_inst;
-	};
-*/
+
 struct es_cdev *es_cdev;//replace  1.static struct class *g_xdma_class; 2.static const char * const devnode_names[type] 3.dev_t dev;
-static const struct file_operations xdma_fops;
 //======================================add by ycf 2025.7.25=============================================
 static struct class *g_xdma_class;
 
@@ -43,7 +34,7 @@ struct kmem_cache *cdev_cache;
 
 
 
-static const char * const devnode_names[] = {
+static char *  devnode_names[] = {
 	XDMA_NODE_NAME "%d_user",
 	XDMA_NODE_NAME "%d_control",
 	XDMA_NODE_NAME "%d_xvc",
@@ -53,6 +44,9 @@ static const char * const devnode_names[] = {
 	XDMA_NODE_NAME "%d_bypass_h2c_%d",
 	XDMA_NODE_NAME "%d_bypass_c2h_%d",
 	XDMA_NODE_NAME "%d_bypass",
+//======================================add by ycf 2025.8.13=============================================
+	VI53XX_DEV_NAME,
+//======================================add by ycf 2025.8.13=============================================
 };
 
 
@@ -74,9 +68,23 @@ static inline int xpdev_flag_test(struct xdma_pci_dev *xpdev,
 {
 	return xpdev->flags & (1 << fbit);
 }
-//======================================add by ycf 2025.7.25=============================================
+//======================================add by ycf 2025.8.12=============================================
+static int vi53xx_open(struct inode *inode, struct file *file);
+static long vi53xx_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
+static int vi53xx_xdma_mmap(struct file *filp, struct vm_area_struct *vma);
+void vi53xx_request_majorDevId(void);
+void vi53xx_release_majorDevId(void);
+void vi53xx_cdev_exit(void);
+int vi53xx_cdev_init(void);
+int vi53xx_dev_init(struct xdma_pci_dev *xpdev);
+void  vi53xx_dev_clean(struct xdma_pci_dev *xpdev);
 
-static long xdma_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+static const struct file_operations vi53xx_xdma_fops = {
+    .open       = vi53xx_open,
+    .unlocked_ioctl = vi53xx_ioctl,
+    .mmap = vi53xx_xdma_mmap,
+};
+static long vi53xx_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int ret = -EINVAL;
 	int type, nr;
@@ -97,13 +105,34 @@ static long xdma_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	return ret;
 }
 
-static int xdma_mmap(struct file *filp, struct vm_area_struct *vma)
+static int vi53xx_open(struct inode *inode, struct file *file)
+{
+    struct xdma_cdev *xcdev;
+
+	/* pointer to containing structure of the character device inode */
+	xcdev = container_of(inode->i_cdev, struct xdma_cdev, cdev);
+	if (xcdev->magic != MAGIC_CHAR) {
+		pr_err("xcdev 0x%p inode 0x%lx magic mismatch 0x%lx\n",
+			    xcdev, inode->i_ino, xcdev->magic);
+		return -EINVAL;
+	}
+
+	file->f_op = &vi53xx_xdma_fops;
+	/* create a reference to our char device in the opened file */
+	file->private_data = xcdev;
+
+	return 0;
+}
+
+static int vi53xx_xdma_mmap(struct file *filp, struct vm_area_struct *vma)
 {
     struct xdma_cdev *xcdev = (struct xdma_cdev *)filp->private_data;
 
 	return _vi53xx_xdma_mmap(vma, xcdev->xdev);
 }
-//======================================add by ycf 2025.7.25=============================================
+
+
+//======================================add by ycf 2025.8.12=============================================
 #ifdef __XDMA_SYSFS__
 ssize_t xdma_dev_instance_show(struct device *dev,
 		struct device_attribute *attr,
@@ -148,6 +177,12 @@ static int config_kobject(struct xdma_cdev *xcdev, enum cdev_type type)
 		rv = kobject_set_name(&xcdev->cdev.kobj, devnode_names[type],
 			xdev->idx, xcdev->bar);
 		break;
+//======================================add by ycf 2025.8.12=============================================
+	case	CDEV_CTRL:
+		rv = kobject_set_name(&xcdev->cdev.kobj, devnode_names[type],
+			xdev->idx, xcdev->bar);
+		break;
+//======================================add by ycf 2025.8.12=============================================
 	default:
 		pr_warn("%s: UNKNOWN type 0x%x.\n", __func__, type);
 		break;
@@ -201,18 +236,10 @@ int char_open(struct inode *inode, struct file *file)
 	}
 	/* create a reference to our char device in the opened file */
 	file->private_data = xcdev;
-//======================================add by ycf 2025.7.25=============================================	
-	//file->f_op = &xdma_fops;
-//======================================add by ycf 2025.7.25=============================================	
+
 	return 0;
 }
-//======================================add by ycf 2025.7.25=============================================	
-static const struct file_operations xdma_fops = {
-    .open       = char_open,
-    .unlocked_ioctl = xdma_ioctl,
-    .mmap = xdma_mmap,
-};
-//======================================add by ycf 2025.7.25=============================================	
+
 /*
  * Called when the device goes from used to unused.
  */
@@ -266,17 +293,20 @@ static int create_sys_device(struct xdma_cdev *xcdev, enum cdev_type type)
 		last_param = xcdev->bar;
 	else
 		last_param = engine ? engine->channel : 0;
-//======================================remove by ycf 2025.7.25=============================================
-	xcdev->sys_device = device_create(g_xdma_class, &xdev->pdev->dev,
+
+
+//======================================add by ycf 2025.8.13=============================================
+	if(type==CDEV_CTRL){
+		xcdev->sys_device = device_create(es_cdev->cdev_class, &xdev->pdev->dev,xcdev->cdevno, NULL, es_cdev->device_name,
+		xdev->idx,last_param);
+	}else
+//======================================add by ycf 2025.8.13=============================================
+	{
+		xcdev->sys_device = device_create(g_xdma_class, &xdev->pdev->dev,
 		xcdev->cdevno, NULL, devnode_names[type], xdev->idx,
 		last_param);
+	}
 
-//======================================remove by ycf 2025.7.25=============================================
-//======================================add by ycf 2025.7.25=============================================
-/* 	xcdev->sys_device = device_create(es_cdev->cdev_class, &xdev->pdev->dev,
-		xcdev->cdevno, NULL, es_cdev->device_name, xdev->idx,
-		last_param); */
-//======================================add by ycf 2025.7.25=============================================
 	if (!xcdev->sys_device) {
 		pr_err("device_create(%s) failed\n", devnode_names[type]);
 		return -1;
@@ -312,8 +342,11 @@ static int destroy_xcdev(struct xdma_cdev *cdev)
 	}
 
 	if (cdev->sys_device)
-		device_destroy(g_xdma_class, cdev->cdevno);//======================================remove by ycf 2025.7.25=============================================
-		//device_destroy(es_cdev->cdev_class, cdev->cdevno);//======================================add by ycf 2025.7.25=============================================
+	{
+		device_destroy(g_xdma_class, cdev->cdevno);
+		
+		device_destroy(es_cdev->cdev_class, cdev->cdevno);//======================================add by ycf 2025.7.25=============================================
+	}
 
 	cdev_del(&cdev->cdev);
 
@@ -328,25 +361,28 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 	int minor;
 	struct xdma_dev *xdev = xpdev->xdev;
 	dev_t dev;
-//======================================add by ycf 2025.7.25=============================================
-/*     struct device_info *info = &xcdev->info;
-    uint32_t instance;
-	void *reg_base = xdev->bar[0];
-    uint32_t inca_dt; 
-	int n = 0; */
-//======================================add by ycf 2025.7.25=============================================
-	spin_lock_init(&xcdev->lock);
-	/* new instance? */
-	if (!xpdev->major) {
-		/* allocate a dynamically allocated char device node */
-		int rv = alloc_chrdev_region(&dev, XDMA_MINOR_BASE,
-					XDMA_MINOR_COUNT, XDMA_NODE_NAME);
 
-		if (rv) {
-			pr_err("unable to allocate cdev region %d.\n", rv);
-			return rv;
+	spin_lock_init(&xcdev->lock);
+//======================================add by ycf 2025.8.13=============================================
+/////////////////// 需要特别注意主 次设备号分配	
+	if(type==CDEV_CTRL){ 
+		vi53xx_request_majorDevId();
+	}
+	else 
+//======================================add by ycf 2025.8.13=============================================
+	{
+		/* new instance? */
+		if (!xpdev->major) {
+			/* allocate a dynamically allocated char device node */
+			int rv = alloc_chrdev_region(&dev, XDMA_MINOR_BASE,
+						XDMA_MINOR_COUNT, XDMA_NODE_NAME);
+
+			if (rv) {
+				pr_err("unable to allocate cdev region %d.\n", rv);
+				return rv;
+			}
+			xpdev->major = MAJOR(dev);
 		}
-		xpdev->major = MAJOR(dev);
 	}
 
 	/*
@@ -358,39 +394,61 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 	xcdev->xdev = xdev;
 	xcdev->engine = engine;
 	xcdev->bar = bar;
+
+//======================================add by ycf 2025.8.13=============================================
+	if(type==CDEV_CTRL)
+	{	
 //======================================add by ycf 2025.7.25=============================================
-/* 	info->read_reg = xdev->fops->read_reg;
-	info->write_reg = xdev->fops->write_reg;
+		struct device_info *info = &xcdev->info;
+		uint32_t instance;
+		void *reg_base = xdev->bar[0];
+		uint32_t inca_dt; 
+		int n = 0;
+		info->read_reg = xdev->fops->read_reg;//xdma_fops->read_reg
+		info->write_reg = xdev->fops->write_reg;
+		
+		if(info->read_reg==NULL)
+		{
+			pr_warn("NULL point In info->read_reg Failed!\n");
+		}else {
+			inca_dt = info->read_reg(reg_base, DEVICE_BOARD_TYPE);
+			dbg_init("board type       = 0x%x\n", inca_dt);
+		}
 
-    inca_dt = info->read_reg(reg_base, DEVICE_BOARD_TYPE);
-    dbg_init("board type       = 0x%x\n", inca_dt);
+		if ((instance = get_board_instance(inca_dt)) < 0) {
+			pr_info("unknow inca_dt\n");
+			return -EINVAL;
+		}
 
-    if ((instance = get_board_instance(inca_dt)) < 0) {
-        pr_info("unknow inca_dt\n");
-	    return -EINVAL;
-    }
+		if (!get_board_name(inca_dt)) {
+			pr_info("unknow board name\n");
+			return -EINVAL;
+		}
+		
+		if(es_cdev==NULL)
+		{
+			pr_warn("NULL point In es_cdev Failed!\n");
+		}
+		n = get_major_idx(inca_dt);
+		xcdev->cdevno = MKDEV(es_cdev->major[n], instance);
+		es_cdev->board_inst = MINOR(xcdev->cdevno);
+		info->board_inst = instance;
+		init_device_info(info, reg_base);
+		dbg_init("board id         = 0x%x\n", info->board_id);
+		dbg_init("board instance   = 0x%x\n", info->board_inst);
+		dbg_init("board name       = %s  \n", info->device_name);
+		dbg_init("mdl_version      = 0x%x\n", info->mdl_version);
+		dbg_init("fpga_version     = 0x%x\n", info->fpga_version);
+		dbg_init("board_type       = 0x%x\n", info->board_type);
+		dbg_init("board serial     = 0x%x\n", info->serial);
+		dbg_init("board led_blink  = 0x%x\n", info->led_blink);
 
-    if (!get_board_name(inca_dt)) {
-        pr_info("unknow board name\n");
-	    return -EINVAL;
-    }
-
-	n = get_major_idx(inca_dt);
-	xcdev->cdevno = MKDEV(es_cdev->major[n], instance);
-	es_cdev->board_inst = MINOR(xcdev->cdevno);
-	info->board_inst = instance;
-	init_device_info(info, reg_base);
-    dbg_init("board id         = 0x%x\n", info->board_id);
-    dbg_init("board instance   = 0x%x\n", info->board_inst);
-    dbg_init("board name       = %s  \n", info->device_name);
-    dbg_init("mdl_version      = 0x%x\n", info->mdl_version);
-    dbg_init("fpga_version     = 0x%x\n", info->fpga_version);
-    dbg_init("board_type       = 0x%x\n", info->board_type);
-    dbg_init("board serial     = 0x%x\n", info->serial);
-    dbg_init("board led_blink  = 0x%x\n", info->led_blink);
-
-	sprintf(es_cdev->device_name, "%s_%d", get_board_name(inca_dt), es_cdev->board_inst); */
+		sprintf(es_cdev->device_name, "%s_%d", get_board_name(inca_dt), es_cdev->board_inst);
+		strcpy(devnode_names[type],es_cdev->device_name);//设置设备文件名
 //======================================add by ycf 2025.7.25=============================================
+	}
+//======================================add by ycf 2025.8.13=============================================
+
 	rv = config_kobject(xcdev, type);
 	if (rv < 0)
 		return rv;
@@ -431,6 +489,12 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 		minor = 100;
 		cdev_bypass_init(xcdev);
 		break;
+//======================================add by ycf 2025.8.12=============================================
+	case CDEV_CTRL:
+		minor = type;
+        cdev_init(&xcdev->cdev, &vi53xx_xdma_fops);
+		break;
+//======================================add by ycf 2025.8.12=============================================
 	default:
 		pr_info("type 0x%x NOT supported.\n", type);
 		return -EINVAL;
@@ -446,24 +510,34 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 
 	dbg_init("xcdev 0x%p, %u:%u, %s, type 0x%x.\n",
 		xcdev, xpdev->major, minor, xcdev->cdev.kobj.name, type);
-//======================================remove by ycf 2025.7.25=============================================
 
-	// create device on our class 
-	if (g_xdma_class) {
-		rv = create_sys_device(xcdev, type);
-		if (rv < 0)
-			goto del_cdev;
+//======================================add by ycf 2025.8.23=============================================	
+/* 	
+	if(type==CDEV_CTRL)
+	{	
+		create_proc_device(xcdev, es_cdev->device_name);
+	}
+	 */
+	if(type==CDEV_CTRL)
+	{	if (es_cdev->cdev_class) {
+			rv = create_sys_device(xcdev,type);//	创建 	proc/$VI53XX_DEV_NAME/$(es_cdev->device_name)	文件/proc/vi53xx/es5311_0
+			if (rv < 0)
+				goto del_cdev;
+		}
+		create_proc_device(xcdev, devnode_names[type]);
+	}else 
+		
+//======================================add by ycf 2025.8.13=============================================
+	{
+		// create device on our class 
+		if (g_xdma_class) {
+			rv = create_sys_device(xcdev, type);
+			if (rv < 0)
+				goto del_cdev;
+		}
 	}
 
-//======================================remove by ycf 2025.7.25=============================================
-//======================================add by ycf 2025.7.25=============================================	
-/* 	if (es_cdev->cdev_class) {
-        rv = create_sys_device(xcdev,type);
-        if (rv < 0)
-            goto del_cdev;
-    }//	创建 	proc/$VI53XX_DEV_NAME/$(es_cdev->device_name)	文件/proc/vi53xx/es5311_0
-	create_proc_device(xcdev, es_cdev->device_name); */
-//======================================add by ycf 2025.7.25=============================================
+
 	return 0;
 
 del_cdev:
@@ -549,7 +623,12 @@ void xpdev_destroy_interfaces(struct xdma_pci_dev *xpdev)
 		if (rv < 0)
 			pr_err("Failed to destroy base cdev\n");
 	}
-
+//======================================add by ycf 2025.8.12=============================================
+	if (xpdev_flag_test(xpdev, XDF_CDEV_CHAR_CTRL)) {
+		vi53xx_dev_clean(xpdev);//destroy_xcdev
+		vi53xx_release_majorDevId();
+	}
+//======================================add by ycf 2025.8.12=============================================
 	if (xpdev->major)
 		unregister_chrdev_region(
 				MKDEV(xpdev->major, XDMA_MINOR_BASE),
@@ -656,6 +735,7 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev)
 
 	/* initialize user character device */
 	if (xdev->user_bar_idx >= 0) {
+		
 		rv = create_xcdev(xpdev, &xpdev->user_cdev, xdev->user_bar_idx,
 			NULL, CHAR_USER);
 		if (rv < 0) {
@@ -673,7 +753,12 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev)
 		}
 		xpdev_flag_set(xpdev, XDF_CDEV_XVC);
 	}
-
+//======================================add by ycf 2025.8.12=============================================
+	if (vi53xx_dev_init(xpdev) < 0) {
+	    rv = -EINVAL;
+        goto fail;
+	}
+//======================================add by ycf 2025.8.12=============================================
 #ifdef __XDMA_SYSFS__
 	/* sys file */
 	rv = device_create_file(&xpdev->pdev->dev,
@@ -695,39 +780,9 @@ fail:
 int xdma_cdev_init(void)
 {
 //======================================add by ycf 2025.7.25=============================================
-/* 	int i, rv;
-	es_cdev  = kmalloc(sizeof(*es_cdev), GFP_KERNEL);
-	if (!es_cdev)
-		return -1;
-	
-#if defined(RHEL_RELEASE_CODE)
-    #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9, 4))
-        es_cdev->cdev_class = class_create(XDMA_NODE_NAME);
-    #else
-        es_cdev->cdev_class = class_create(THIS_MODULE, XDMA_NODE_NAME);
-    #endif
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
-        es_cdev->cdev_class = class_create(XDMA_NODE_NAME);
-#else
-        es_cdev->cdev_class = class_create(THIS_MODULE, XDMA_NODE_NAME);
-#endif
-	if (IS_ERR(es_cdev->cdev_class)) {
-		dbg_init(XDMA_NODE_NAME ": failed to create class");
-		return -EINVAL;
-	}
-/////////////////// 需要特别注意主 次设备号分配	
-	for (i=0; i<BOARD_TEPE_NUM; i++) {
-		// allocate a dynamically allocated char device node 
-		rv = alloc_chrdev_region(&es_cdev->dev, XDMA_MINOR_BASE,XDMA_MINOR_COUNT, XDMA_NODE_NAME);
-		if (rv) {
-			pr_err("unable to allocate cdev region %d.\n", rv);
-			return rv;
-		}
-
-		es_cdev->major[i] = MAJOR(es_cdev->dev);
-	} */
+	vi53xx_cdev_init();
 //======================================add by ycf 2025.7.25=============================================
-//======================================remove by ycf 2025.7.25=============================================
+
 
 #if defined(RHEL_RELEASE_CODE)
     #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9, 4))
@@ -746,7 +801,6 @@ int xdma_cdev_init(void)
 	}
 
 
-//======================================remove by ycf 2025.7.25=============================================
 	/* using kmem_cache_create to enable sequential cleanup */
 	cdev_cache = kmem_cache_create("cdev_cache",
 					sizeof(struct cdev_async_io), 0,
@@ -764,25 +818,100 @@ void xdma_cdev_cleanup(void)
 {
 	if (cdev_cache)
 		kmem_cache_destroy(cdev_cache);
-//======================================remove by ycf 2025.7.25=============================================
+
 
 	if (g_xdma_class)
 		class_destroy(g_xdma_class);
 
-//======================================remove by ycf 2025.7.25=============================================
 //======================================add by ycf 2025.7.25=============================================
-/* 	int i; 
+	vi53xx_cdev_exit();
+//======================================add by ycf 2025.7.25=============================================
+}
+
+//======================================add by ycf 2025.8.13=============================================
+
+void vi53xx_request_majorDevId()
+{
+		int i,rv;
+		for (i=0; i<BOARD_TEPE_NUM; i++) {
+		// allocate a dynamically allocated char device node 
+		rv = alloc_chrdev_region(&es_cdev->dev, 0, 128, VI53XX_DEV_NAME);
+		if (rv) {
+			pr_err("unable to allocate cdev region %d.\n", rv);
+			return rv;
+		}
+
+		es_cdev->major[i] = MAJOR(es_cdev->dev);
+	}	
+}
+
+void vi53xx_release_majorDevId()
+{
+	int i;
+	for (i=0; i<BOARD_TEPE_NUM; i++) {
+		unregister_chrdev_region(MKDEV(es_cdev->major[i], 0), 255);
+	}
+}
+
+void vi53xx_cdev_exit(void)
+{
+	 
 
     if (es_cdev->cdev_class)
 		class_destroy(es_cdev->cdev_class);
 
-	for (i=0; i<BOARD_TEPE_NUM; i++) {
-		unregister_chrdev_region(MKDEV(es_cdev->major[i], 0), 255);
-	}
 
 	if (es_cdev) {
 		kfree(es_cdev);
 		es_cdev = NULL;
-	} */
-//======================================add by ycf 2025.7.25=============================================
+	}
 }
+
+
+
+int vi53xx_cdev_init(void)
+{
+	int i, rv;
+
+	es_cdev  = kmalloc(sizeof(*es_cdev), GFP_KERNEL);
+	if (!es_cdev)
+		return -1;
+
+    es_cdev->cdev_class = class_create(THIS_MODULE, VI53XX_DEV_NAME);
+    if (IS_ERR(es_cdev->cdev_class)) {
+        dbg_init(VI53XX_DEV_NAME ": failed to create class");
+        return -1;
+    }
+	
+    return 0;
+}
+
+int vi53xx_dev_init(struct xdma_pci_dev *xpdev)
+{
+    int ret = 0;
+	struct xdma_dev *xdev = xpdev->xdev;
+    create_xcdev(xpdev, &xpdev->vi53xx_ctrl_cdev, xdev->config_bar_idx,NULL,  CDEV_CTRL);
+    if (ret < 0) {
+        pr_err("create_char(vi53xx_xmda) failed\n");
+        goto fail;
+    }
+
+    xpdev_flag_set(xpdev, XDF_CDEV_CHAR_CTRL);
+
+    return 0;
+fail:
+	ret = -1;
+	destroy_xcdev(&xpdev->vi53xx_ctrl_cdev);
+	return ret;
+}
+
+void  vi53xx_dev_clean(struct xdma_pci_dev *xpdev)
+{
+	int rv=0;
+	rv = destroy_xcdev(&xpdev->vi53xx_ctrl_cdev);
+	if (rv < 0){
+			pr_err("Failed to destroy vi53xx ctl cdev\n");
+			return rv;
+	}
+}
+//======================================add by ycf 2025.8.13=============================================

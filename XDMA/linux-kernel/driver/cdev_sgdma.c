@@ -48,6 +48,7 @@ extern struct kmem_cache *cdev_cache;
 static void char_sgdma_unmap_user_buf(struct xdma_io_cb *cb, bool write);
 
 
+
 static void async_io_handler(unsigned long  cb_hndl, int err)
 {
 	struct xdma_cdev *xcdev;
@@ -907,9 +908,10 @@ static int char_sgdma_open(struct inode *inode, struct file *file)
 
 		engine->eop_flush = (file->f_flags & O_TRUNC) ? 1 : 0;
 	}
-
+	
 	return 0;
 }
+
 
 static int char_sgdma_close(struct inode *inode, struct file *file)
 {

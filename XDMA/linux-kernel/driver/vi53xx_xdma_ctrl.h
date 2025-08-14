@@ -11,7 +11,7 @@
 #define BAR1 0x1
 
 #define MAGIC_CHAR      0xCCCCCCUL
-
+extern struct es_cdev *es_cdev;
 long vi53xx_ioctl_xdma(unsigned int cmd, unsigned long arg, void *data);
 int _vi53xx_xdma_mmap(struct vm_area_struct *vma, void *data);
 

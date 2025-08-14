@@ -84,7 +84,12 @@ static u32 ReadFcrRegister(UINTPTR BaseAddress);
 
 /****************************************************************************/
 /**
+** 获取指定驱动程序实例的选项。这些选项以位掩码形式实现，以便可以同时启用或禁用多个选项。
 *
+* @param InstancePtr 是指向 XUartNs550 实例的指针。
+*
+* @return UART 的当前选项。这些选项是位掩码，
+* 包含在文件 xuartns550.h 中，名为 XUN_OPTION_*。
 * Gets the options for the specified driver instance. The options are
 * implemented as bit masks such that multiple options may be enabled or
 * disabled simultaneously.
@@ -142,7 +147,18 @@ u16 XUartNs550_GetOptions(XUartNs550 *InstancePtr)
 
 /****************************************************************************/
 /**
+** 设置指定驱动程序实例的选项。这些选项以位掩码形式实现，以便可以同时启用或禁用多个选项。
 *
+* 可以调用 GetOptions 函数来检索当前启用的选项。将结果与要启用的新设置进行“或”运算，并 与要禁用的设置进行逆“与”运算以清除它们。
+* 结果值随后将用作 SetOption 函数调用的选项。
+*
+* @param InstancePtr 是指向 XUartNs550 实例的指针。
+* @param Options 包含要设置的选项，这些选项是位掩码，
+* 包含在文件 xuartns550.h 中，名为 XUN_OPTION_*。
+*
+* @return
+* - 如果选项设置成功，则返回 XST_SUCCESS。
+* - 如果由于硬件不支持 FIFO 而无法设置选项，则返回 XST_UART_CONFIG_ERROR
 * Sets the options for the specified driver instance. The options are
 * implemented as bit masks such that multiple options may be enabled or
 * disabled simultaneously.
@@ -168,7 +184,7 @@ int XUartNs550_SetOptions(XUartNs550 *InstancePtr, u16 Options)
 {
 	u32 Index;
 	u32 Register;
-
+	//printf("In XUartNs550_SetOptions\r\n");
 	/*
 	 * Assert validates the input arguments
 	 */
@@ -181,7 +197,7 @@ int XUartNs550_SetOptions(XUartNs550 *InstancePtr, u16 Options)
 	 */
 	for (Index = 0; Index < XUN_NUM_OPTIONS; Index++) {
 
-		/*
+		/** 如果正在读取 FIFO 控制寄存器，则这是一个特殊情况，需要特殊的寄存器处理
 		 * If the FIFO control register is being read, this is a
 		 * special case that requires special register processing
 		 */
@@ -223,6 +239,12 @@ int XUartNs550_SetOptions(XUartNs550 *InstancePtr, u16 Options)
 /****************************************************************************/
 /**
 *
+* 此函数获取接收 FIFO 触发级别。接收触发级别表示接收 FIFO 中触发接收数据事件（中断）的字节数。
+*
+* @param InstancePtr 是指向 XUartNs550 实例的指针。
+*
+* @return 当前接收 FIFO 触发级别。定义每个触发级别的常量
+* 包含在文件 xuartns550.h 中，名为 XUN_FIFO_TRIGGER_*。
 * This function gets the receive FIFO trigger level. The receive trigger
 * level indicates the number of bytes in the receive FIFO that cause a receive
 * data event (interrupt) to be generated.
@@ -260,7 +282,10 @@ u8 XUartNs550_GetFifoThreshold(XUartNs550 *InstancePtr)
 
 /****************************************************************************/
 /**
+** 此函数用于设置接收 FIFO 触发级别。接收触发级别指定接收 FIFO 中触发接收数据事件（中断）的字节数。必须启用 FIFO 才能设置触发级别。
 *
+* @param InstancePtr 是指向 XUartNs550 实例的指针。
+* @param TriggerLevel 包含要设置的触发级别。定义每个触发级别的常量位于文件 xuartns550.h 中，名为 XUN_FIFO_TRIGGER_*。
 * This functions sets the receive FIFO trigger level. The receive trigger
 * level specifies the number of bytes in the receive FIFO that cause a receive
 * data event (interrupt) to be generated. The FIFOs must be enabled to set the
@@ -327,7 +352,14 @@ int XUartNs550_SetFifoThreshold(XUartNs550 *InstancePtr, u8 TriggerLevel)
 
 /****************************************************************************/
 /**
+** 此函数返回指定 UART 中发生的最后错误。
+* 它还会清除这些错误，使它们无法再次被检索。
+* 这些错误包括奇偶校验错误、接收溢出错误、帧错误和中断检测。
 *
+* 最后错误是每次在驱动程序中发现错误时累积的错误。
+* 系统会检查每个接收字节的状态，并将此状态累积到最后错误中。
+*
+* 如果在接收缓冲区数据后调用此函数，它将指示缓冲区字节发生的任何错误。它不会指示哪些字节包含错误。
 * This function returns the last errors that have occurred in the specified
 * UART. It also clears the errors such that they cannot be retrieved again.
 * The errors include parity error, receive overrun error, framing error, and
@@ -376,6 +408,12 @@ u8 XUartNs550_GetLastErrors(XUartNs550 *InstancePtr)
 /****************************************************************************/
 /**
 *
+* 此函数从指定的 UART 获取调制解调器状态。调制解调器状态指示调制解调器信号的任何变化
+* 此函数允许以轮询模式读取调制解调器状态。调
+* 制解调器状态每次读取时都会更新，因此两次读取的结果可能不同。
+* @param InstancePtr 是指向 XUartNs550 实例的指针。
+*
+* @return 调制解调器状态，其位掩码包含在文件 xuartns550.h 中，名为 XUN_MODEM_*。
 * This function gets the modem status from the specified UART. The modem
 * status indicates any changes of the modem signals. This function allows
 * the modem status to be read in a polled mode. The modem status is updated
@@ -412,6 +450,11 @@ u8 XUartNs550_GetModemStatus(XUartNs550 *InstancePtr)
 
 /****************************************************************************/
 /**
+** 此函数判断指定的 UART 是否正在发送数据。如果发送寄存器不为空，则表示正在发送数据。
+*
+* @param InstancePtr 是指向 XUartNs550 实例的指针。
+*
+* @return 如果 UART 正在发送数据，则返回 TRUE，否则返回 FALSE。
 *
 * This function determines if the specified UART is sending data. If the
 * transmitter register is not empty, it is sending data.
@@ -447,7 +490,12 @@ int XUartNs550_IsSending(XUartNs550 *InstancePtr)
 
 /****************************************************************************/
 /**
+** 此函数读取 FIFO 控制寄存器。其主要目的是隔离读取此寄存器的特殊处理
+* 需要先写入线路控制寄存器，然后读取 FIFO 控制寄存器，然后恢复线路控制寄存器。
 *
+* @param BaseAddress 包含设备中寄存器的基址。
+*
+* @return FIFO 控制寄存器的内容。
 * This functions reads the FIFO control register. It's primary purpose is to
 * isolate the special processing for reading this register. It is necessary
 * to write to the line control register, then read the FIFO control register,

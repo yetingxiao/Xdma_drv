@@ -298,6 +298,9 @@ typedef struct {
 } XUartNs550_Config;
 
 /**
+NextBytePtr：指向下一个要发送或接收的字节的内存地址。
+RequestedBytes：用户请求发送或接收的总字节数。
+RemainingBytes：还剩下多少字节未发送或接收
  * The following data type is used to manage the buffers that are handled
  * when sending and receiving data in the interrupt mode.
  */
@@ -358,6 +361,36 @@ typedef struct {
  * variable of this type for every UART 16550/16450 device in the system.
  * A pointer to a variable of this type is then passed to the driver API
  * functions.
+ XUartNs550 结构体中的 Handler 和 CallBackRef 在应用上的主要区别在于它们的角色：Handler 是一个函数指针，用于指定中断发生时要执行的函数；而 CallBackRef 是一个指向任意数据的指针，用于在中断函数中访问特定实例或数据。
+Handler (函数指针)
+角色：它是一个函数指针，存储着一个函数的内存地址。当UART设备产生中断时，XUartNs550_InterruptHandler 会调用这个指针所指向的函数。
+用途：你将自己编写的、用于处理特定中断事件（例如接收到数据）的函数地址赋给 Handler。这个函数就是你实现业务逻辑的地方。
+CallBackRef (数据指针)
+角色：它是一个 void* 类型的数据指针，可以指向任何数据类型。它不指向一个函数，而是指向一个数据结构或一个对象。
+用途：当 Handler 函数被调用时，CallBackRef 的值会作为参数传递给它。这允许你在同一个中断处理函数中，通过 CallBackRef 访问到中断对应的特定设备实例（例如，XUartNs550 结构体本身），从而能够操作该设备的寄存器、缓冲区等数据。
+应用上的区别示例
+假设你有两个UART设备实例 Uart0 和 Uart1，并且它们都使用同一个中断处理函数 MyInterruptHandler。
+// 你的中断处理函数
+void MyInterruptHandler(void *CallBackRef, u32 Event, unsigned int EventData) {
+    // 通过CallBackRef来区分是哪个设备触发的中断
+    XUartNs550 *InstancePtr = (XUartNs550 *)CallBackRef;
+    
+    if (Event == XUN_EVENT_RECV_DATA) {
+        // ... 从InstancePtr->ReceiveBuffer中读取数据
+    }
+}
+// 主程序中设置回调
+XUartNs550 Uart0;
+XUartNs550 Uart1;
+
+// 为Uart0设置中断处理
+Uart0.Handler = MyInterruptHandler;
+Uart0.CallBackRef = &Uart0; // CallBackRef指向Uart0实例本身
+
+// 为Uart1设置中断处理
+Uart1.Handler = MyInterruptHandler;
+Uart1.CallBackRef = &Uart1; // CallBackRef指向Uart1实例本身
+在这个例子中，Handler 都是 MyInterruptHandler，但 CallBackRef 的值不同，分别是 &Uart0 和 &Uart1。这使得同一个中断函数能够正确地操作不同的硬件实例，从而实现了代码的复用性和灵活性。
  */
 typedef struct {
 	XUartNs550Stats Stats;	/**< Statistics */

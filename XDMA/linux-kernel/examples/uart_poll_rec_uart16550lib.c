@@ -30,10 +30,14 @@
 ******************************************************************************/
 
 /***************************** Include Files *********************************/
-
+#include <stdio.h>
+#include<stdlib.h>
+#include<unistd.h>
+#include <time.h>
 #include "xparameters.h"
 #include "xuartns550.h"
 #include "xil_printf.h"
+
 
 /************************** Constant Definitions *****************************/
 
@@ -50,7 +54,7 @@
  * this is a single threaded non-interrupt driven example such that the
  * entire buffer will fit into the transmit and receive FIFOs of the UART
  */
-#define TEST_BUFFER_SIZE 16
+#define TEST_BUFFER_SIZE 512
 
 /**************************** Type Definitions *******************************/
 
@@ -71,7 +75,8 @@ XUartNs550 UartNs550;	/* Instance of the UART Device */
  * with the UART.
  */
 u8 SendBuffer[TEST_BUFFER_SIZE];	/* Buffer for Transmitting Data */
-u8 RecvBuffer[TEST_BUFFER_SIZE];	/* Buffer for Receiving Data */
+char RecvBuffer[TEST_BUFFER_SIZE];	/* Buffer for Receiving Data */
+
 
 
 /*****************************************************************************/
@@ -87,7 +92,14 @@ u8 RecvBuffer[TEST_BUFFER_SIZE];	/* Buffer for Receiving Data */
 * @note		None.
 *
 ******************************************************************************/
-#ifndef TESTAPP_GEN
+#include "xuartns550.h"
+
+// 假设 UartNs550Instance 已经被初始化
+XUartNs550 UartNs550Instance;
+XUartNs550Stats *StatsPtr;
+
+
+
 int main(void)
 {
 	int Status;
@@ -99,7 +111,7 @@ int main(void)
 	 */
 	Status = UartNs550PolledExample(UART_DEVICE_ID);
 	if (Status != XST_SUCCESS) {
-		xil_printf("Uartns550 polled Example Failed\r\n");
+		printf("Uartns550 polled Example Failed\r\n");
 		return XST_FAILURE;
 	}
 
@@ -107,7 +119,6 @@ int main(void)
 	return XST_SUCCESS;
 
 }
-#endif
 
 /*****************************************************************************/
 /**
@@ -136,26 +147,39 @@ int UartNs550PolledExample(u16 DeviceId)
 	unsigned int SentCount;
 	unsigned int ReceivedCount = 0;
 	u16 Index;
+	u16 Index2;
 	u16 Options;
-
+	int errornum=0;
+	
+	static int loop =0;
+	static int loop2 =0;
+	char* data="0123456789abcdefghijklmnopqrstuvwxyzzyxwvutsrqponmlkjihgfedcba98765432101234567890123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789012345678901234567890123456789abcdefghijklmnopqrstuvwxyz01234567899876543210abcdefghijklmnopq";
+	char* Buffer=malloc(100*TEST_BUFFER_SIZE);
+	StatsPtr=malloc(sizeof(XUartNs550Stats));
 	/*
 	 * Initialize the UART Lite driver so that it's ready to use,
 	 * specify the device ID that is generated in xparameters.h
 	 */
 	Status = XUartNs550_Initialize(&UartNs550, DeviceId);
 	if (Status != XST_SUCCESS) {
+		printf("XUartNs550_Initialize Error.\n");
 		return XST_FAILURE;
 	}
 
 	/*
 	 * Perform a self-test to ensure that the hardware was built  correctly
 	 */
-
+/* 	Status = XUartNs550_SelfTest(&UartNs550);
+	if (Status != XST_SUCCESS) {
+		printf("XUartNs550_SelfTest Error.\n");
+		return XST_FAILURE;
+	}
+ */
 	/*
 	 * Enable the local loopback so data that is sent will be received,
 	 * and keep the FIFOs enabled
 	 */
-	Options =  XUN_OPTION_FIFOS_ENABLE;
+	Options = XUN_OPTION_FIFOS_ENABLE;
 	XUartNs550_SetOptions(&UartNs550, Options);
 
 	/*
@@ -163,7 +187,7 @@ int UartNs550PolledExample(u16 DeviceId)
 	 * the receive buffer bytes to zero
 	 */
 	for (Index = 0; Index < TEST_BUFFER_SIZE; Index++) {
-		SendBuffer[Index] = '0' + Index;
+		//SendBuffer[Index] = '0' + Index;
 		RecvBuffer[Index] = 0;
 	}
 
@@ -172,10 +196,11 @@ int UartNs550PolledExample(u16 DeviceId)
 	 * sent (block), if the specified number of bytes was not sent
 	 * successfully, then an error occurred
 	 */
-	SentCount = XUartNs550_Send(&UartNs550, SendBuffer, TEST_BUFFER_SIZE);
+/* 	SentCount = XUartNs550_Send(&UartNs550, SendBuffer, TEST_BUFFER_SIZE);
 	if (SentCount != TEST_BUFFER_SIZE) {
+		printf("XUartNs550_Send Error.\n");
 		return XST_FAILURE;
-	}
+	} */
 
 	/*
 	 * Receive the number of bytes which is transferred.
@@ -184,13 +209,74 @@ int UartNs550PolledExample(u16 DeviceId)
 	 * accordingly.
 	 */
 	while (1) {
-	   ReceivedCount += XUartNs550_Recv(&UartNs550,
+			ReceivedCount += XUartNs550_Recv(&UartNs550,
 					   RecvBuffer + ReceivedCount,
 					   TEST_BUFFER_SIZE - ReceivedCount);
-	   if (ReceivedCount == TEST_BUFFER_SIZE)
-	   {
-		break;
-           }
+	
+				
+		   if (ReceivedCount == TEST_BUFFER_SIZE)
+		   {
+				//printf("XUartNs550_Receive %d cycle OK.\n",loop+1);
+				
+/* 				for (Index = 0; Index < TEST_BUFFER_SIZE; Index++) {
+					printf("Received byte %d: 0x%02X ('%c')\n", loop*TEST_BUFFER_SIZE+Index+1, RecvBuffer[Index], (isprint(RecvBuffer[Index]) ? RecvBuffer[Index] : '.'));
+				} */ 
+				for (Index = 0; Index < TEST_BUFFER_SIZE; Index++) {
+				//SendBuffer[Index] = '0' + Index;
+					Buffer[loop*TEST_BUFFER_SIZE+Index]=RecvBuffer[Index];
+				}
+				
+/* 				for (Index = 0; Index < TEST_BUFFER_SIZE; Index++) {
+				//SendBuffer[Index] = '0' + Index;
+					RecvBuffer[Index] = 0;
+				} */
+				ReceivedCount=0;
+				loop++;
+		   }
+		   
+		   if (loop==100)
+		   {
+				//printf("XUartNs550_Receive %d cycle OK.\n",loop+1);
+				
+				for (Index = 0; Index < loop*2; Index++) {
+					//printf("Received byte %d: 0x%02X ('%c')\n", (loop2)*100*TEST_BUFFER_SIZE+Index+1, Buffer[Index], (isprint(RecvBuffer[Index]) ? RecvBuffer[Index] : '.'));
+					for (Index2 = 0; Index2 <256; Index2++) {
+					//printf("Received byte %d: 0x%02X ('%c')\n", (loop2)*100*TEST_BUFFER_SIZE+Index+1, Buffer[Index], (isprint(RecvBuffer[Index]) ? RecvBuffer[Index] : '.'));
+						if(data[Index2]!=Buffer[Index*256+Index2])
+						{errornum++;}
+					} 
+				} 
+				
+				// 获取统计信息
+				 XUartNs550_GetStats(&UartNs550,StatsPtr);
+
+				// 现在，您可以检查这些错误计数器
+				if (StatsPtr != NULL) {
+					if (StatsPtr->ReceiveParityErrors > 0) {
+						// 处理奇偶校验错误
+						printf("Parity errors: %lu\n", (unsigned long)StatsPtr->ReceiveParityErrors);
+					}
+					if (StatsPtr->ReceiveFramingErrors > 0) {
+						// 处理帧错误
+						printf("Framing errors: %lu\n", (unsigned long)StatsPtr->ReceiveFramingErrors);
+					}
+					if (StatsPtr->ReceiveOverrunErrors > 0) {
+						// 处理溢出错误
+						printf("Overrun errors: %lu\n", (unsigned long)StatsPtr->ReceiveOverrunErrors);
+					}
+					if (StatsPtr != NULL) {
+						// 打印已接收的字符数
+						printf("Received characters: %lu\n", (unsigned long)StatsPtr->CharactersReceived);
+					}
+
+				}
+				printf("Received error byte %d\n",errornum);
+				loop=0;
+				loop2++;
+		   }
+		   
+
+			usleep(1); // 1微秒延迟
         }
 
 	/*

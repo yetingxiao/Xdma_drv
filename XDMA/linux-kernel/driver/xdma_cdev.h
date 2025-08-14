@@ -37,6 +37,9 @@ enum xpdev_flags_bits {
 	XDF_CDEV_EVENT,
 	XDF_CDEV_SG,
 	XDF_CDEV_BYPASS,
+//======================================add by ycf 2025.8.12=============================================
+	XDF_CDEV_CHAR_CTRL,
+//======================================add by ycf 2025.8.12=============================================
 };
 
 enum cdev_type {
@@ -49,6 +52,9 @@ enum cdev_type {
 	CHAR_BYPASS_H2C,
 	CHAR_BYPASS_C2H,
 	CHAR_BYPASS,
+//======================================add by ycf 2025.8.12=============================================
+	CDEV_CTRL,
+//======================================add by ycf 2025.8.12=============================================
 };
 //======================================add by ycf 2025.7.25=============================================
 struct es_cdev {
@@ -77,4 +83,9 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev);
 
 int bridge_mmap(struct file *file, struct vm_area_struct *vma);
 
+
+void vi53xx_cdev_exit(void);
+int vi53xx_cdev_init(void);
+extern int vi53xx_dev_init(struct xdma_pci_dev *xpdev);
+extern void  vi53xx_dev_clean(struct xdma_pci_dev *xpdev);
 #endif /* __XDMA_CHRDEV_H__ */

@@ -41,10 +41,15 @@
 
 #include "xparameters.h"
 #include "xuartns550.h"
+#include "xil_exception.h"
 
+#ifdef XPAR_INTC_0_DEVICE_ID
+#include "xintc.h"
 #include <stdio.h>
+#else
+#include "xscugic.h"
 #include "xil_printf.h"
-
+#endif
 
 
 /************************** Constant Definitions ******************************/
@@ -54,8 +59,16 @@
  * xparameters.h file. They are defined here such that a user can easily
  * change all the needed parameters in one place.
  */
+#ifndef TESTAPP_GEN
+#define UART_DEVICE_ID		XPAR_UARTNS550_0_DEVICE_ID
+#define UART_IRPT_INTR		XPAR_INTC_0_UARTNS550_0_VEC_ID
 
-
+#ifdef XPAR_INTC_0_DEVICE_ID
+#define INTC_DEVICE_ID		XPAR_INTC_0_DEVICE_ID
+#else
+#define INTC_DEVICE_ID		XPAR_SCUGIC_SINGLE_DEVICE_ID
+#endif /* XPAR_INTC_0_DEVICE_ID */
+#endif /* TESTAPP_GEN */
 
 /*
  * The following constant controls the length of the buffers to be sent
@@ -63,13 +76,32 @@
  */
 #define TEST_BUFFER_SIZE	100
 
+
+/**************************** Type Definitions ********************************/
+
+#ifdef XPAR_INTC_0_DEVICE_ID
+#define INTC		XIntc
+#define INTC_HANDLER	XIntc_InterruptHandler
+#else
+#define INTC		XScuGic
+#define INTC_HANDLER	XScuGic_InterruptHandler
+#endif /* XPAR_INTC_0_DEVICE_ID */
+
 /************************** Function Prototypes *******************************/
 
 int UartNs550IntrExample(INTC *IntcInstancePtr,
-			XUartNs550 *UartInstancePtr);
+			XUartNs550 *UartInstancePtr,
+			u16 UartDeviceId,
+			u16 UartIntrId);
 
 void UartNs550IntrHandler(void *CallBackRef, u32 Event, unsigned int EventData);
 
+
+static int UartNs550SetupIntrSystem(INTC *IntcInstancePtr,
+				XUartNs550 *UartInstancePtr,
+				u16 UartIntrId);
+
+static void UartNs550DisableIntrSystem(INTC *IntcInstancePtr, u16 UartIntrId);
 
 /************************** Variable Definitions ******************************/
 
@@ -93,7 +125,7 @@ static volatile int TotalReceivedCount;
 static volatile int TotalSentCount;
 static volatile int TotalErrorCount;
 
-#define UART_DEVICE_ID		XPAR_UARTNS550_0_DEVICE_ID
+
 /******************************************************************************/
 /**
 *
@@ -115,7 +147,9 @@ int main(void)
 	 * Run the UartNs550 Interrupt example.
 	 */
 	Status = UartNs550IntrExample(&IntcInstance,
-					&UartNs550Instance);
+					&UartNs550Instance,
+					UART_DEVICE_ID,
+					UART_IRPT_INTR);
 	if (Status != XST_SUCCESS) {
 		xil_printf("Uartns550 interrupt Example Failed\r\n");
 		return XST_FAILURE;
@@ -156,7 +190,9 @@ int main(void)
 *
 *******************************************************************************/
 int UartNs550IntrExample(INTC *IntcInstancePtr,
-			XUartNs550 *UartInstancePtr)
+			XUartNs550 *UartInstancePtr,
+			u16 UartDeviceId,
+			u16 UartIntrId)
 {
 	int Status;
 	u32 Index;
@@ -167,7 +203,7 @@ int UartNs550IntrExample(INTC *IntcInstancePtr,
 	/*
 	 * Initialize the UART driver so that it's ready to use.
 	 */
-	Status = XUartNs550_Initialize(UartInstancePtr, UART_DEVICE_ID);
+	Status = XUartNs550_Initialize(UartInstancePtr, UartDeviceId);
 	if (Status != XST_SUCCESS) {
 		return XST_FAILURE;
 	}
@@ -176,6 +212,17 @@ int UartNs550IntrExample(INTC *IntcInstancePtr,
 	 * Perform a self-test to ensure that the hardware was built correctly.
 	 */
 	Status = XUartNs550_SelfTest(UartInstancePtr);
+	if (Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+
+	/*
+	 * Connect the UART to the interrupt subsystem such that interrupts can
+	 * occur. This function is application specific.
+	 */
+	Status = UartNs550SetupIntrSystem(IntcInstancePtr,
+						UartInstancePtr,
+						UartIntrId);
 	if (Status != XST_SUCCESS) {
 		return XST_FAILURE;
 	}
@@ -190,10 +237,12 @@ int UartNs550IntrExample(INTC *IntcInstancePtr,
 			  UartInstancePtr);
 
 	/*
-	 * Enable the interrupt of the UART so interrupts will occur, and keep the
+	 * Enable the interrupt of the UART so interrupts will occur, setup
+	 * a local loopback so data that is sent will be received, and keep the
 	 * FIFOs enabled.
 	 */
-	Options = XUN_OPTION_DATA_INTR |XUN_OPTION_FIFOS_ENABLE;
+	Options = XUN_OPTION_DATA_INTR | XUN_OPTION_LOOPBACK |
+			XUN_OPTION_FIFOS_ENABLE;
 	XUartNs550_SetOptions(UartInstancePtr, Options);
 
 
@@ -238,6 +287,11 @@ int UartNs550IntrExample(INTC *IntcInstancePtr,
 		}
 	}
 
+	/*
+	 * Disable the UartNs550 interrupt.
+	 */
+	UartNs550DisableIntrSystem(IntcInstancePtr, UartIntrId);
+
 
 	/*
 	 * If any bytes were not correct, return an error.
@@ -255,7 +309,8 @@ int UartNs550IntrExample(INTC *IntcInstancePtr,
 	 * Clean up the options
 	 */
 	Options = XUartNs550_GetOptions(UartInstancePtr);
-	Options = Options & ~(XUN_OPTION_DATA_INTR |XUN_OPTION_FIFOS_ENABLE);//| XUN_OPTION_LOOPBACK 
+	Options = Options & ~(XUN_OPTION_DATA_INTR | XUN_OPTION_LOOPBACK |
+			XUN_OPTION_FIFOS_ENABLE);
 	XUartNs550_SetOptions(UartInstancePtr, Options);
 
 	return XST_SUCCESS;
@@ -320,5 +375,167 @@ void UartNs550IntrHandler(void *CallBackRef, u32 Event, unsigned int EventData)
 	}
 }
 
+/******************************************************************************/
+/**
+*
+* This function setups the interrupt system such that interrupts can occur
+* for the UART.  This function is application specific since the actual
+* system may or may not have an interrupt controller.  The UART could be
+* directly connected to a processor without an interrupt controller.  The
+* user should modify this function to fit the application.
+*
+* @param	IntcInstancePtr is a pointer to the instance of the Interrupt
+*		Controller.
+* @param	UartInstancePtr is a pointer to the instance of the UART.
+* @param	UartIntrId is the interrupt Id and is typically
+*		XPAR_<INTC_instance>_<UARTNS550_instance>_VEC_ID value from
+*		xparameters.h.
+*
+* @return	XST_SUCCESS if successful, otherwise XST_FAILURE.
+*
+* @note		None.
+*
+*******************************************************************************/
+static int UartNs550SetupIntrSystem(INTC *IntcInstancePtr,
+					XUartNs550 *UartInstancePtr,
+					u16 UartIntrId)
+{
+	int Status;
+#ifdef XPAR_INTC_0_DEVICE_ID
+#ifndef TESTAPP_GEN
+	/*
+	 * Initialize the interrupt controller driver so that it is ready
+	 * to use.
+	 */
+	Status = XIntc_Initialize(IntcInstancePtr, INTC_DEVICE_ID);
+	if (Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+#endif /* TESTAPP_GEN */
+
+	/*
+	 * Connect a device driver handler that will be called when an interrupt
+	 * for the device occurs, the device driver handler performs the
+	 * specific interrupt processing for the device.
+	 */
+	Status = XIntc_Connect(IntcInstancePtr, UartIntrId,
+			   (XInterruptHandler)XUartNs550_InterruptHandler,
+			   (void *)UartInstancePtr);
+	if (Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+
+#ifndef TESTAPP_GEN
+	/*
+	 * Start the interrupt controller such that interrupts are enabled for
+	 * all devices that cause interrupts, specific real mode so that
+	 * the UART can cause interrupts through the interrupt controller.
+	 */
+	Status = XIntc_Start(IntcInstancePtr, XIN_REAL_MODE);
+	if (Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+#endif /* TESTAPP_GEN */
+
+	/*
+	 * Enable the interrupt for the UartNs550.
+	 */
+	XIntc_Enable(IntcInstancePtr, UartIntrId);
+
+#else
+#ifndef TESTAPP_GEN
+	XScuGic_Config *IntcConfig;
+
+	/*
+	 * Initialize the interrupt controller driver so that it is ready to
+	 * use.
+	 */
+	IntcConfig = XScuGic_LookupConfig(INTC_DEVICE_ID);
+	if (NULL == IntcConfig) {
+		return XST_FAILURE;
+	}
+
+	Status = XScuGic_CfgInitialize(IntcInstancePtr, IntcConfig,
+					IntcConfig->CpuBaseAddress);
+	if (Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+#endif /* TESTAPP_GEN */
+
+	XScuGic_SetPriorityTriggerType(IntcInstancePtr, UartIntrId,
+					0xA0, 0x3);
+
+	/*
+	 * Connect the interrupt handler that will be called when an
+	 * interrupt occurs for the device.
+	 */
+	Status = XScuGic_Connect(IntcInstancePtr, UartIntrId,
+				 (Xil_ExceptionHandler)XUartNs550_InterruptHandler,
+				 UartInstancePtr);
+	if (Status != XST_SUCCESS) {
+		return Status;
+	}
+
+	/*
+	 * Enable the interrupt for the Timer device.
+	 */
+	XScuGic_Enable(IntcInstancePtr, UartIntrId);
+#endif /* XPAR_INTC_0_DEVICE_ID */
+
+#ifndef TESTAPP_GEN
+
+	/*
+	 * Initialize the exception table.
+	 */
+	Xil_ExceptionInit();
+
+	/*
+	 * Register the interrupt controller handler with the exception table.
+	 */
+	Xil_ExceptionRegisterHandler(XIL_EXCEPTION_ID_INT,
+			 (Xil_ExceptionHandler)INTC_HANDLER,
+			 IntcInstancePtr);
+
+	/*
+	 * Enable exceptions.
+	 */
+	Xil_ExceptionEnable();
+
+#endif /* TESTAPP_GEN */
+
+	return XST_SUCCESS;
+}
 
 
+/*****************************************************************************/
+/**
+*
+* This function disables the interrupts that occur for the UartNs550 device.
+*
+* @param	IntcInstancePtr is the pointer to the instance of the Interrupt
+*		Controller.
+* @param	UartIntrId is the interrupt Id and is typically
+*		XPAR_<INTC_instance>_<UARTNS550_instance>_VEC_ID
+*		value from xparameters.h.
+*
+* @return	None.
+*
+* @note		None.
+*
+******************************************************************************/
+static void UartNs550DisableIntrSystem(INTC *IntcInstancePtr, u16 UartIntrId)
+{
+
+	/*
+	 * Disconnect and disable the interrupt for the UartNs550 device.
+	 */
+#ifdef XPAR_INTC_0_DEVICE_ID
+	XIntc_Disconnect(IntcInstancePtr, UartIntrId);
+#else
+	XScuGic_Disable(IntcInstancePtr, UartIntrId);
+	XScuGic_Disconnect(IntcInstancePtr, UartIntrId);
+
+#endif
+
+
+}

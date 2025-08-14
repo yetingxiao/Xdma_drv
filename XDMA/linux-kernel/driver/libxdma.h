@@ -36,6 +36,10 @@
 #include "board_info.h"
 //======================================add by ycf 2025.7.25=============================================
 extern struct list_head pcie_device_list;
+struct xdma_channel_addr {
+    u32 addr;
+    unsigned int size;
+};
 #define MAX_EXTRA_ADJ                       (15)
 #define MAX_DESC_NUM                        (64)
 #define DMA_CHANNEL_NUM                     (2)
@@ -271,6 +275,93 @@ extern struct list_head pcie_device_list;
 #define dbg_init(...)
 #define dbg_desc(...)
 #endif
+
+//======================================add by ycf 2025.8.12=============================================
+extern int vi53xx_debug;
+
+/* disable debugging */
+/* #define dbg_init(fmt, args...) \
+    do { \
+        if(vi53xx_debug) printk(KERN_DEBUG "%s " fmt, __func__, ##args); \
+    } while(0) */
+
+#define PCI_DMA_H(addr) ((addr >> 16) >> 16)
+#define PCI_DMA_L(addr) (addr & 0xffffffffUL)
+
+#define POLL                                (1)
+
+//#define XDMA_H2C0_STARTADDR		        (0x80100100)
+#define XDMA_H2C0_STARTADDR		            (0x80100000)
+//#define XDMA_C2H0_STARTADDR		        (0x80101000)
+#define XDMA_C2H0_STARTADDR		            (0x80100000)
+#define XDMA_C2H1_ASTARTADDR		        (0x00000000)
+#define XDMA_C2H1_BSTARTADDR		        (0x01FA4000)
+
+#define H2C_INTERRUPT_MASK_REG              (0x0090)
+#define H2C_CONTROL_REG                     (0x0004)
+#define H2C_CHANNEL_STATUS_REG              (0x0044)
+#define H2C_CHANNEL_COMPLETED_DESC_REG      (0x0048)
+#define H2C_POLL_LOW_ADDR_REG               (0x0088)
+#define H2C_POLL_HIGH_ADDR_REG              (0x008C)
+
+#define C2H_INTERRUPT_MASK_REG              (0x1090)
+#define C2H_CONTROL_REG                     (0x1004)
+#define C2H_CHANNEL_STATUS_REG              (0x1044)
+#define C2H_POLL_LOW_ADDR_REG               (0x1088)
+#define C2H_POLL_HIGH_ADDR_REG              (0x108C)
+
+#define INTERRUPT_ENABLE_REG                (0x2010)
+#define INTERRUPT_UNMASK_REG                (0x2014)
+#define INTERRUPT_MASK_REG                  (0x2018)
+#define INTERRUPT_REQ_REG                   (0x2044)
+
+#define H2C_SGDMA_DESC_LOW32_REG            (0x4080)
+#define H2C_SGDMA_DESC_HIGH32_REG           (0x4084)
+#define H2C_SGDMA_DESC_ADJA_REG             (0x4088)
+#define H2C_SGDMA_DESC_ADD_REG              (0x408C)
+
+#define C2H_SGDMA_DESC_LOW32_REG            (0x5080)
+#define C2H_SGDMA_DESC_HIGH32_REG           (0x5084)
+#define C2H_SGDMA_DESC_ADJA_REG             (0x5088)
+#define C2H_SGDMA_DESC_ADD_REG              (0x508C)
+
+#define SGDMA_DESC_MODE_EN_REG              (0x6020)
+
+#define MAX_EXTRA_ADJ                       (15)
+#define MAX_DESC_NUM                        (64)
+#define DMA_CHANNEL_NUM                     (2)
+//#define DESC_MAGIC                          (0xAD4B0000UL)
+/* obtain the 32 most significant (high) bits of a 32-bit or 64-bit address */
+#define PCI_DMA_H(addr)                     ((addr >> 16) >> 16)
+/* obtain the 32 least significant (low) bits of a 32-bit or 64-bit address */
+#define PCI_DMA_L(addr)                     (addr & 0xffffffffUL)
+
+#define  H2C_DIR  			                (0)
+#define  C2H_DIR  			                (1)
+#define  CH1                                (1)
+#define  CH2                                (2)
+
+#define  CH1_H2C0                           (0x2000)
+#define  CH1_C2H0                           (0x2000)
+#define  CH2_C2H1                           (0x400000)
+#define  CH2_H2C1                           (0x100)
+
+#define DMA_STOP                            (0x0000)    // Running the SGDMA engine
+
+#define PCIE_XDMA_BAR_NUM		            (6)
+#define XDMA_BAR_NUM			            (6)
+#define XDMA_CHANNEL_NUM		            (2)
+#define DESC_NUM		                    (1)
+
+extern struct xdma_dev *alloc_dev_instance(struct pci_dev *pdev);
+extern int request_regions(struct xdma_dev *xdev, struct pci_dev *pdev);
+extern int map_bars(struct xdma_dev *xdev, struct pci_dev *dev);
+extern int set_dma_mask(struct pci_dev *pdev);
+extern void unmap_bars(struct xdma_dev *xdev, struct pci_dev *dev);
+extern const struct  pci_info vi53xx_info;
+extern void  platform_setup_fops(struct xdma_dev *xdev);
+extern void xdma_free_resource(struct pci_dev *pdev, void *dev_xdev);
+//======================================add by ycf 2025.8.12=============================================
 
 /* SECTION: Enum definitions */
 enum transfer_state {
@@ -601,16 +692,20 @@ struct xdma_user_irq {
 };
 //===================================add by ycf 2025.7.25===============================
 struct xdma_cfg_info {
-	unsigned char          direction;                    /* 0-host2card 1-card2host */
-	unsigned char          SG_desc_num;                  /* Number of descriptors during DMA transfer */
-	unsigned char 	       *pData[MAX_DESC_NUM];         /* Array of data pointers, the pointers point to the transferred data */
-	unsigned int           data_len[MAX_DESC_NUM];       /* An array of data lengths, representing the length of data transmitted by each descriptor */
-	dma_addr_t             data_phy_addr[MAX_DESC_NUM];  /* Array of physical addresses, storing the physical addresses of the transferred data */
-	struct xdma_desc       *pFirst_desc;                 /* pointer to the first descriptor */
-	dma_addr_t             first_desc_phy_addr;          /* physical address of the first descriptor */
+	unsigned char          direction;                   
+	unsigned char          SG_desc_num;                  
+	unsigned char 	       *pData[MAX_DESC_NUM];        
+	unsigned int           data_len[MAX_DESC_NUM];       
+	dma_addr_t             data_phy_addr[MAX_DESC_NUM];  
+	struct xdma_desc       *pFirst_desc;                 
+	dma_addr_t             first_desc_phy_addr;          
     size_t                 size;
     int                    channel;
     u32                    ep_addr;
+};
+
+struct pci_info {
+    int (*setup)(struct pci_dev *pdev, struct xdma_cfg_info *plat);
 };
 
 struct xdma_fops {
@@ -722,8 +817,11 @@ struct xdma_pci_dev {
 
 	void *data;
 	//===================================add by ycf 2025.7.25===============================
+	struct xdma_cdev vi53xx_ctrl_cdev;
 	struct list_head  list;
+	int bus;
 	struct xdma_cfg_info  *dma_cfg[2]; /*2 dir*/
+	int fmap[2][4];
 	//===================================add by ycf 2025.7.25===============================
 };
 //===================================add by ycf from xdma_mod.h 2025.7.26===============================

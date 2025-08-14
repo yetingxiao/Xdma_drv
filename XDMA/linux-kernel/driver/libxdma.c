@@ -31,8 +31,10 @@
 #include "libxdma_api.h"
 #include "cdev_sgdma.h"
 #include "xdma_thread.h"
+#include<asm/cacheflush.h>
 //======================================add by ycf 2025.7.25=============================================
 LIST_HEAD(pcie_device_list);
+
 //======================================add by ycf 2025.7.25=============================================
 /* Module Parameters */
 static unsigned int poll_mode;
@@ -200,8 +202,10 @@ inline void __write_register(const char *fn, u32 value, void *iomem,
 	iowrite32(value, iomem);
 }
 #define write_register(v, mem, off) __write_register(__func__, v, mem, off)
+//#define write_register(v, mem) iowrite32(v, mem)
 #else
 #define write_register(v, mem, off) iowrite32(v, mem)
+//#define write_register(v, mem) iowrite32(v, mem)
 #endif
 
 inline u32 read_register(void *iomem)
@@ -218,6 +222,435 @@ static inline u64 build_u64(u64 hi, u64 lo)
 {
 	return ((hi & 0xFFFFFFFULL) << 32) | (lo & 0xFFFFFFFFULL);
 }
+//======================================add by ycf 2025.8.12=============================================
+
+//============================================vi53xx mod lib====================================================
+
+static void xdma_free_c2h_pdata(struct xdma_dev *xdev, int channel, int desc_num, struct pci_dev *pdev)
+{
+    int i = 0;
+	struct xdma_pci_dev *xpdev;
+	xpdev = dev_get_drvdata(&pdev->dev);
+
+	for(i = 0; i < desc_num; i++ ) {
+         if (xdev->C2H_dma_cfg[channel].pData[i]) {
+            if (xpdev->fmap[C2H_DIR][channel])
+                set_memory_wb((unsigned long)xdev->C2H_dma_cfg[channel].pData[i], xdev->C2H_dma_cfg[channel].size >> PAGE_SHIFT);
+
+             dma_free_coherent(&pdev->dev, xdev->C2H_dma_cfg[channel].size,
+         	                  xdev->C2H_dma_cfg[channel].pData[i],
+         			  xdev->C2H_dma_cfg[channel].data_phy_addr[i]);
+            xdev->C2H_dma_cfg[channel].pData[i] = NULL;
+         }
+    }
+}
+
+static void xdma_free_h2c_pdata(struct xdma_dev *xdev, int channel, int desc_num, struct pci_dev *pdev)
+{
+    int i = 0;
+	struct xdma_pci_dev *xpdev;
+	xpdev = dev_get_drvdata(&pdev->dev);
+
+	for(i = 0; i < desc_num; i++ ) {
+        if (xdev->H2C_dma_cfg[channel].pData[i]) {
+            if (xpdev->fmap[H2C_DIR][channel])
+                set_memory_wb((unsigned long)xdev->H2C_dma_cfg[channel].pData[i], xdev->H2C_dma_cfg[channel].size >> PAGE_SHIFT);
+
+            dma_free_coherent(&pdev->dev, xdev->H2C_dma_cfg[channel].size,
+        	                  xdev->H2C_dma_cfg[channel].pData[i],
+        			            xdev->H2C_dma_cfg[channel].data_phy_addr[i]);
+           xdev->H2C_dma_cfg[channel].pData[i] = NULL;
+        }
+    }
+}
+static void xdma_free_pci_bus_addr(struct xdma_dev *xdev, struct pci_dev *pdev)
+{
+    int channel = 0;
+    int c2h_num, h2c_num;
+
+    for (channel = 0; channel < XDMA_CHANNEL_NUM; channel++) {
+        /* C2H : pci bus addr*/
+        c2h_num = xdev->C2H_dma_cfg[channel].SG_desc_num;
+        xdma_free_c2h_pdata(xdev, channel, c2h_num, pdev);
+
+        /* H2C : pci bus addr*/
+        h2c_num = xdev->H2C_dma_cfg[channel].SG_desc_num;
+        xdma_free_h2c_pdata(xdev, channel, h2c_num, pdev);
+    }
+}
+
+static void xdma_free_h2c_desc(struct xdma_dev *xdev, struct pci_dev *pdev, int channel)
+{
+    if (xdev->H2C_dma_cfg[channel].pFirst_desc) {
+        dma_free_coherent(&pdev->dev, xdev->H2C_dma_cfg[channel].SG_desc_num * sizeof(struct xdma_desc),
+                              xdev->H2C_dma_cfg[channel].pFirst_desc,
+                              xdev->H2C_dma_cfg[channel].first_desc_phy_addr);
+
+        xdev->H2C_dma_cfg[channel].pFirst_desc = NULL;
+    }
+}
+
+static void xdma_free_c2h_desc(struct xdma_dev *xdev, struct pci_dev *pdev, int channel)
+{
+    if (xdev->C2H_dma_cfg[channel].pFirst_desc) {
+        dma_free_coherent(&pdev->dev, xdev->C2H_dma_cfg[channel].SG_desc_num * sizeof(struct xdma_desc),
+                              xdev->C2H_dma_cfg[channel].pFirst_desc,
+                              xdev->C2H_dma_cfg[channel].first_desc_phy_addr);
+
+        xdev->C2H_dma_cfg[channel].pFirst_desc = NULL;
+    }
+}
+
+static void xdma_free_desc(struct xdma_dev *xdev, struct pci_dev *pdev)
+{
+    int channel = 0;
+
+    for (channel = 0; channel < XDMA_CHANNEL_NUM; channel++) {
+        /* H2C xdma_desc */
+        xdma_free_h2c_desc(xdev, pdev, channel);
+
+        /* C2H xdma_desc */
+        xdma_free_c2h_desc(xdev, pdev, channel);
+    }
+}
+
+void xdma_free_resource(struct pci_dev *pdev, void *dev_xdev)
+{
+	struct xdma_dev *xdev = (struct xdma_dev *)dev_xdev;
+
+	if (!dev_xdev)
+		return;
+
+    xdma_free_pci_bus_addr(xdev, pdev);
+    xdma_free_desc(xdev, pdev);
+}
+//============================================vi53xx mod lib==============================================
+
+struct xdma_channel_addr ch_addr[2][XDMA_CHANNEL_NUM + 1] = {
+     [H2C_DIR][CH1] = {XDMA_H2C0_STARTADDR, CH1_H2C0},
+     [C2H_DIR][CH1] = {XDMA_C2H0_STARTADDR, CH1_C2H0},
+     [C2H_DIR][CH2] = {XDMA_C2H1_ASTARTADDR, CH2_C2H1},
+};
+
+int vi53xx_info_init(struct pci_dev *pdev, struct xdma_cfg_info *plat);
+
+const struct  pci_info vi53xx_info = {
+    .setup = vi53xx_info_init,
+};
+
+static int xdma_physical_address_init(struct pci_dev *pdev, struct xdma_cfg_info *pDma_cfg)
+{
+	int i;
+    void *ptr;
+
+	for(i = 0; i < pDma_cfg->SG_desc_num; i++ ) {
+		ptr = dma_alloc_coherent(&pdev->dev, pDma_cfg->size, &pDma_cfg->data_phy_addr[i], GFP_KERNEL);
+		if (!ptr){
+			printk("System Error: DMA Memory Allocate.\n");
+			return -1;
+		}
+
+        memset(ptr, 0, pDma_cfg->size);
+        pDma_cfg->pData[i] = ptr;
+	}
+
+	return 0;
+}
+
+static u32 get_ep_addr(int channel, int dir)
+{
+	return ch_addr[dir][channel].addr;
+}
+
+static unsigned int get_chanel_size(int channel, int dir)
+{
+	return ch_addr[dir][channel].size;
+}
+
+int vi53xx_info_init(struct pci_dev *pdev, struct xdma_cfg_info *plat)
+{
+     struct xdma_cfg_info *dma_cfg = plat;
+     int channel = dma_cfg->channel;
+     int dir = dma_cfg->direction;
+
+     dma_cfg->SG_desc_num = DESC_NUM;
+     dma_cfg->ep_addr = get_ep_addr(channel, dir);
+     dma_cfg->data_len[0] = get_chanel_size(channel, dir);
+     dma_cfg->size = get_chanel_size(channel, dir);
+
+     xdma_physical_address_init(pdev, dma_cfg);
+
+	 return 0;
+}
+
+static unsigned int xdma_read_reg(void *reg_base, unsigned int offset)
+{
+	void *reg = reg_base + offset;
+
+	return read_register(reg);
+}
+
+static void xdma_write_reg(void *reg_base, unsigned int offset, unsigned int val)
+{
+	void *reg = reg_base + offset;
+
+	write_register(val, reg,0);
+	dbg_init("xdma write bar1 offset[0x%x] value = [0x%x]\n", offset, val);
+}
+
+unsigned int read_reg(void *reg_base, unsigned int offset)
+{
+	void *reg = reg_base + offset;
+
+	return read_register(reg);
+}
+
+unsigned int write_reg(void *reg_base, unsigned int offset, unsigned int val)
+{
+	void *reg = reg_base + offset;
+
+	write_register(val, reg,0);
+
+	return 0;
+}
+
+int xdma_start(struct xdma_dev *xdev, unsigned char channel, unsigned char direction)
+{
+	unsigned char channel_index = channel - 1;
+	unsigned int tmp_value = 0;
+	unsigned int DMA_start = 0x01; // Running the SGDMA engine
+	void *reg_base = xdev->bar[1];
+
+	tmp_value = (1 << 26) | (1 << 2) | DMA_start;
+	if (direction == 0) {
+		xdma_write_reg(reg_base, H2C_CONTROL_REG + channel_index * 0x100, tmp_value);
+
+		tmp_value = xdma_read_reg(reg_base, H2C_CONTROL_REG + channel_index * 0x100);
+	} else {
+		xdma_write_reg(reg_base, C2H_CONTROL_REG + channel_index * 0x100, tmp_value);
+
+		tmp_value = xdma_read_reg(reg_base, C2H_CONTROL_REG + channel_index * 0x100);
+	}
+
+	return 0;
+}
+
+int xdma_start_desc(struct xdma_dev *xdev, unsigned char channel, struct xdma_cfg_info *cfg)
+{
+	unsigned char ch_index = channel - 1;
+
+	uint8_t SG_num = cfg->SG_desc_num;
+	uint8_t dir = cfg->direction;
+	void *reg_base = xdev->bar[1];
+
+	if (SG_num > 1)	{
+		if (dir == 0)
+			xdma_write_reg(reg_base, H2C_SGDMA_DESC_ADD_REG + ch_index * 0x100, SG_num);
+		else
+			xdma_write_reg(reg_base, C2H_SGDMA_DESC_ADD_REG + ch_index * 0x100, SG_num);
+	}
+
+	return 0;
+}
+
+static int xdma_cofg_desc(struct xdma_dev *xdev, unsigned char channel, struct xdma_cfg_info *cfg)
+{
+	unsigned char ch_index = channel - 1;
+	dma_addr_t first_desc_phy = cfg->first_desc_phy_addr;
+	unsigned int low_addr = PCI_DMA_L(first_desc_phy);
+	unsigned int high_addr = PCI_DMA_H(first_desc_phy);
+	uint8_t SG_num = cfg->SG_desc_num;
+	uint8_t dir = cfg->direction;
+	unsigned int tmp_desc = 0;
+
+	void *reg_base = xdev->bar[1];
+
+	if (dir == 0) {
+		if (SG_num > 1) {
+			tmp_desc = xdma_read_reg(reg_base, SGDMA_DESC_MODE_EN_REG);
+			tmp_desc |= 0x01 << ch_index;
+			xdma_write_reg(reg_base, SGDMA_DESC_MODE_EN_REG, tmp_desc);
+		}
+
+		xdma_write_reg(reg_base, H2C_SGDMA_DESC_LOW32_REG + ch_index * 0x100, low_addr);
+		xdma_write_reg(reg_base, H2C_SGDMA_DESC_HIGH32_REG + ch_index * 0x100, high_addr);
+		xdma_write_reg(reg_base, H2C_SGDMA_DESC_ADJA_REG + ch_index * 0x100, SG_num - 1);
+
+		if (SG_num > 1)
+			xdma_write_reg(reg_base, H2C_SGDMA_DESC_ADD_REG + ch_index * 0x100, SG_num);
+	} else {
+		if (SG_num > 1) {
+			tmp_desc = xdma_read_reg(reg_base, SGDMA_DESC_MODE_EN_REG);
+			tmp_desc |= 0x01 << (ch_index + 16);
+			xdma_write_reg(reg_base, SGDMA_DESC_MODE_EN_REG, tmp_desc);
+		}
+
+		xdma_write_reg(reg_base, C2H_SGDMA_DESC_LOW32_REG + ch_index * 0x100, low_addr);
+		xdma_write_reg(reg_base, C2H_SGDMA_DESC_HIGH32_REG + ch_index * 0x100, high_addr);
+		xdma_write_reg(reg_base, C2H_SGDMA_DESC_ADJA_REG + ch_index * 0x100, SG_num - 1);
+
+		if (SG_num > 1)
+			xdma_write_reg(reg_base, C2H_SGDMA_DESC_ADD_REG + ch_index * 0x100, SG_num);
+
+	}
+
+	return 0;
+}
+
+static void xdma_desc_set_ep_addr(struct xdma_desc *desc_virt, u32 ep_addr, unsigned char direction)
+{
+	if (direction == 0) {
+		desc_virt->dst_addr_lo = cpu_to_le32(PCI_DMA_L(ep_addr));
+		desc_virt->dst_addr_hi = cpu_to_le32(PCI_DMA_H(ep_addr));
+	} else {
+		desc_virt->src_addr_lo = cpu_to_le32(PCI_DMA_L(ep_addr));
+		desc_virt->src_addr_hi = cpu_to_le32(PCI_DMA_H(ep_addr));
+	}
+}
+
+static void xdma_desc_set_addr(struct xdma_desc *desc_virt,  dma_addr_t buff_phy_addr, unsigned char direction, u32 ep_addr)
+{
+	if (direction == 0) {/* H2C */
+		desc_virt->src_addr_lo = cpu_to_le32(PCI_DMA_L(buff_phy_addr));
+		desc_virt->src_addr_hi = cpu_to_le32(PCI_DMA_H(buff_phy_addr));
+	} else { /* C2H */
+		desc_virt->dst_addr_lo = cpu_to_le32(PCI_DMA_L(buff_phy_addr));
+		desc_virt->dst_addr_hi = cpu_to_le32(PCI_DMA_H(buff_phy_addr));
+	}
+
+	xdma_desc_set_ep_addr(desc_virt, ep_addr, direction);
+}
+
+static struct xdma_desc *xdma_desc_alloc(struct pci_dev *pdev, unsigned char channel, struct xdma_cfg_info *cfg)
+{
+	struct xdma_desc *desc_virt = NULL;	/* virtual address */
+	uint8_t SG_num = cfg->SG_desc_num;
+	uint8_t adj = SG_num - 1;
+	uint32_t extra_adj = 0;                     /* Nxt_adj*/
+	uint32_t temp_control = 0;
+	uint32_t final_desc_control = 0x13;
+	dma_addr_t first_desc_phy = 0;
+	dma_addr_t next_desc_phy_addr = 0;
+	dma_addr_t data_phy_addr_tmp = 0;
+	uint8_t dir_tmp = cfg->direction;
+	int i = 0;
+	u32 ep_addr = cfg->ep_addr;
+
+	desc_virt = dma_alloc_coherent(&pdev->dev, SG_num * sizeof(struct xdma_desc), &first_desc_phy, GFP_KERNEL);
+	if (!desc_virt) {
+		printk("System Error: DMA Memory Allocate.\n");
+		return NULL;
+	}
+
+	for (i = 0; i < SG_num-1; i++) {
+		/* any adjacent descriptors? */
+		if (adj > 0) {
+			extra_adj = adj - 1;
+			if (extra_adj > MAX_EXTRA_ADJ)
+				extra_adj = MAX_EXTRA_ADJ;
+			adj--;
+		} else {
+			extra_adj = 0;
+		}
+
+		temp_control = DESC_MAGIC | (extra_adj << 8);
+		desc_virt[i].control = cpu_to_le32(temp_control);
+		desc_virt[i].bytes   = cpu_to_le32(cfg->data_len[i]);
+
+		data_phy_addr_tmp    = cfg->data_phy_addr[i];
+
+		xdma_desc_set_addr(&desc_virt[i], data_phy_addr_tmp, dir_tmp, ep_addr + i*0x2000);
+
+		next_desc_phy_addr   = first_desc_phy + (i+1) * sizeof(struct xdma_desc);
+		desc_virt[i].next_lo = cpu_to_le32(PCI_DMA_L(next_desc_phy_addr));
+		desc_virt[i].next_hi = cpu_to_le32(PCI_DMA_H(next_desc_phy_addr));
+
+	}
+
+	temp_control         = DESC_MAGIC | (extra_adj << 8) | final_desc_control;
+	desc_virt[i].control = cpu_to_le32(temp_control);
+	desc_virt[i].bytes   = cpu_to_le32(cfg->data_len[i]);
+	data_phy_addr_tmp    = cfg->data_phy_addr[i];
+
+	xdma_desc_set_addr(&desc_virt[i], data_phy_addr_tmp, dir_tmp, ep_addr + (SG_num-1)*0x2000);
+
+	cfg->pFirst_desc = desc_virt;
+	cfg->first_desc_phy_addr = first_desc_phy;
+
+	return desc_virt;
+}
+
+int xdma_stop(struct xdma_dev *xdev, unsigned char channel, unsigned char direction)
+{
+	unsigned char channel_index = channel - 1;
+	void *reg_base = xdev->bar[1];
+
+	if (direction == 0)
+		xdma_write_reg(reg_base, H2C_CONTROL_REG + channel_index * 0x100, DMA_STOP);
+	else
+		xdma_write_reg(reg_base, C2H_CONTROL_REG + channel_index * 0x100, DMA_STOP);
+
+	return  0;
+}
+
+int xdma_poll_init(struct xdma_dev *xdev, int channel, unsigned char direction)
+{
+	int channel_index = channel - 1;
+	void *reg_base = xdev->bar[1];
+
+	unsigned int tmp_value = 0;
+	unsigned int poll_enable = (1 << 26) | (1 << 2); // poll init
+
+	if (direction == 0) {
+		tmp_value = xdma_read_reg(reg_base,  H2C_CONTROL_REG + channel_index * 0x100);
+		tmp_value = tmp_value | poll_enable;
+		xdma_write_reg(reg_base, H2C_CONTROL_REG + channel_index*0x100, tmp_value);
+	} else {
+		tmp_value = xdma_read_reg(reg_base, C2H_CONTROL_REG + channel_index*0x100);
+		tmp_value = tmp_value | poll_enable;
+		xdma_write_reg(reg_base, C2H_CONTROL_REG + channel_index*0x100, tmp_value);
+	}
+
+	return 0;
+}
+
+void xdma_create_transfer(struct xdma_dev *xdev, unsigned char channel, struct xdma_cfg_info *cfg)
+{
+	xdma_desc_alloc(xdev->pdev, channel, cfg);
+	xdma_cofg_desc(xdev, channel, cfg);
+}
+
+int xdma_mmap(struct xdma_dev *xdev, void *vm, struct xdma_cfg_info *cfg)
+{
+	struct xdma_pci_dev *xpdev;
+	struct pci_dev *pdev = xdev->pdev;
+	struct vm_area_struct *vma = (struct vm_area_struct *)vm;
+
+	xpdev = dev_get_drvdata(&pdev->dev);
+	if (!xpdev->fmap[cfg->direction][cfg->channel]) {
+		set_memory_uc((unsigned long)cfg->pData[0], cfg->size >> PAGE_SHIFT);
+		xpdev->fmap[cfg->direction][cfg->channel] = 1;
+		dev_set_drvdata(&pdev->dev, xpdev);
+	}
+
+	return dma_common_mmap(&pdev->dev, vma, cfg->pData[0], cfg->data_phy_addr[0], vma->vm_end - vma->vm_start);
+}
+struct xdma_fops rtpc_xdma_fops = {
+	.read_reg = read_reg,
+	.write_reg = write_reg,
+	.start = xdma_start,
+	.start_desc = xdma_start_desc,
+	.stop = xdma_stop,
+	.poll_init = xdma_poll_init,
+	.create_transfer = xdma_create_transfer,
+	.xdma_mmap = xdma_mmap,
+};
+
+void  platform_setup_fops(struct xdma_dev *xdev)
+{
+	xdev->fops = &rtpc_xdma_fops;
+}
+//======================================add by ycf 2025.8.12=============================================
 
 static void check_nonzero_interrupt_status(struct xdma_dev *xdev)
 {
@@ -1532,7 +1965,7 @@ static irqreturn_t xdma_channel_irq(int irq, void *dev_id)
 /*
  * Unmap the BAR regions that had been mapped earlier using map_bars()
  */
-static void unmap_bars(struct xdma_dev *xdev, struct pci_dev *dev)
+void unmap_bars(struct xdma_dev *xdev, struct pci_dev *dev)
 {
 	int i;
 
@@ -1693,7 +2126,7 @@ static int identify_bars(struct xdma_dev *xdev, int *bar_id_list, int num_bars,
  * Map the device memory regions into kernel virtual address space after
  * verifying their sizes respect the minimum sizes needed
  */
-static int map_bars(struct xdma_dev *xdev, struct pci_dev *dev)
+int map_bars(struct xdma_dev *xdev, struct pci_dev *dev)
 {
 	int rv;
 
@@ -4126,7 +4559,7 @@ err_engine_transfer:
 	return rv;
 }
 
-static struct xdma_dev *alloc_dev_instance(struct pci_dev *pdev)
+struct xdma_dev *alloc_dev_instance(struct pci_dev *pdev)
 {
 	int i;
 	struct xdma_dev *xdev;
@@ -4195,7 +4628,7 @@ static struct xdma_dev *alloc_dev_instance(struct pci_dev *pdev)
 	return xdev;
 }
 
-static int request_regions(struct xdma_dev *xdev, struct pci_dev *pdev)
+int request_regions(struct xdma_dev *xdev, struct pci_dev *pdev)
 {
 	int rv;
 
@@ -4223,7 +4656,7 @@ static int request_regions(struct xdma_dev *xdev, struct pci_dev *pdev)
 	return rv;
 }
 
-static int set_dma_mask(struct pci_dev *pdev)
+int set_dma_mask(struct pci_dev *pdev)
 {
 	if (!pdev) {
 		pr_err("Invalid pdev\n");
@@ -4439,9 +4872,14 @@ void *xdma_device_open(const char *mname, struct pci_dev *pdev, int *user_max,
 
 	/* allocate zeroed device book keeping structure */
 	xdev = alloc_dev_instance(pdev);
-	if (!xdev)
+	if (!xdev){
+		pr_warn("alloc_dev_instance Failed!\n");
 		return NULL;
+	}
 	xdev->mod_name = mname;
+//======================================add by ycf 2025.8.13=============================================
+	platform_setup_fops(xdev);
+//======================================add by ycf 2025.8.13=============================================
 	xdev->user_max = *user_max;
 	xdev->h2c_channel_max = *h2c_channel_max;
 	xdev->c2h_channel_max = *c2h_channel_max;
@@ -4487,15 +4925,25 @@ void *xdma_device_open(const char *mname, struct pci_dev *pdev, int *user_max,
 
 	rv = request_regions(xdev, pdev);
 	if (rv)
+	{
+		pr_warn("request_regions Failed!\n");
 		goto err_regions;
+	}
+		
 
 	rv = map_bars(xdev, pdev);
 	if (rv)
+	{
+		pr_warn("map_bars Failed!\n");
 		goto err_map;
-
+	}
+		
 	rv = set_dma_mask(pdev);
 	if (rv)
+	{
+		pr_warn("set_dma_mask Failed!\n");
 		goto err_mask;
+	}
 
 	check_nonzero_interrupt_status(xdev);
 	/* explicitely zero all interrupt enable masks */
@@ -4505,7 +4953,10 @@ void *xdma_device_open(const char *mname, struct pci_dev *pdev, int *user_max,
 
 	rv = probe_engines(xdev);
 	if (rv)
+	{
+		pr_warn("probe_engines Failed!\n");
 		goto err_mask;
+	}
 
 	rv = enable_msi_msix(xdev, pdev);
 	if (rv < 0)
@@ -4589,6 +5040,8 @@ void xdma_device_close(struct pci_dev *pdev, void *dev_hndl)
 	xdev_list_remove(xdev);
 
 	kfree(xdev);
+	
+	//xdma_device_umap(xpdev->pdev, xdev);
 }
 
 void xdma_device_offline(struct pci_dev *pdev, void *dev_hndl)
@@ -4797,3 +5250,4 @@ int engine_addrmode_set(struct xdma_engine *engine, unsigned long arg)
 
 	return rv;
 }
+
