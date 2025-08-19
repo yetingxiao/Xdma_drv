@@ -28,13 +28,13 @@
 
 struct es_cdev *es_cdev;//replace  1.static struct class *g_xdma_class; 2.static const char * const devnode_names[type] 3.dev_t dev;
 //======================================add by ycf 2025.7.25=============================================
-static struct class *g_xdma_class;
+//static struct class *g_xdma_class;
 
 struct kmem_cache *cdev_cache;
 
 
 
-static char *  devnode_names[] = {
+char *  devnode_names[] = {
 	XDMA_NODE_NAME "%d_user",
 	XDMA_NODE_NAME "%d_control",
 	XDMA_NODE_NAME "%d_xvc",
@@ -93,7 +93,7 @@ static long vi53xx_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
     type = _IOC_TYPE(cmd);
 	nr = _IOC_NR(cmd);
-
+	//pr_info("Before Xdma_cdev.c vi53xx_ioctl \n");
 	switch (type) {
 	case RTPC_IOCTL_TYPE_XDMA:
 	    ret = vi53xx_ioctl_xdma(nr, arg, xcdev->xdev);
@@ -108,7 +108,7 @@ static long vi53xx_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 static int vi53xx_open(struct inode *inode, struct file *file)
 {
     struct xdma_cdev *xcdev;
-
+	//pr_info("Before Xdma_cdev.c vi53xx_open \n");
 	/* pointer to containing structure of the character device inode */
 	xcdev = container_of(inode->i_cdev, struct xdma_cdev, cdev);
 	if (xcdev->magic != MAGIC_CHAR) {
@@ -116,7 +116,7 @@ static int vi53xx_open(struct inode *inode, struct file *file)
 			    xcdev, inode->i_ino, xcdev->magic);
 		return -EINVAL;
 	}
-
+	
 	file->f_op = &vi53xx_xdma_fops;
 	/* create a reference to our char device in the opened file */
 	file->private_data = xcdev;
@@ -127,7 +127,7 @@ static int vi53xx_open(struct inode *inode, struct file *file)
 static int vi53xx_xdma_mmap(struct file *filp, struct vm_area_struct *vma)
 {
     struct xdma_cdev *xcdev = (struct xdma_cdev *)filp->private_data;
-
+	//pr_info("Before Xdma_cdev.c vi53xx_xdma_mmap \n");
 	return _vi53xx_xdma_mmap(vma, xcdev->xdev);
 }
 
@@ -278,6 +278,9 @@ int char_close(struct inode *inode, struct file *file)
 
 /* create_xcdev() -- create a character device interface to data or control bus
  *
+ * 如果指定了至少一个 SG DMA 引擎，则字符设备接口将与在数据总线上运行的 SG DMA 文件操作耦合。
+* 如果未指定任何引擎，则该接口将与控制总线耦合。
+* 
  * If at least one SG DMA engine is specified, the character device interface
  * is coupled to the SG DMA file operations which operate on the data bus. If
  * no engines are specified, the interface is coupled with the control bus.
@@ -294,17 +297,83 @@ static int create_sys_device(struct xdma_cdev *xcdev, enum cdev_type type)
 	else
 		last_param = engine ? engine->channel : 0;
 
+/*
+device_create(es_cdev->cdev_class, &xdev->pdev->dev, xcdev->cdevno, NULL, full_dev_name, xdev->idx, last_param);
+es_cdev->cdev_class
 
+类型: struct class *
+
+作用: 这是指向设备所属的设备类的指针。这个设备类通常是在驱动程序初始化时通过 class_create() 创建的。例如，如果你创建了一个名为 vi53xx 的类，那么这个参数就指向该类。它决定了新创建的设备节点将出现在 /sys/class/vi53xx/ 目录下。
+
+&xdev->pdev->dev
+
+类型: struct device *
+
+作用: 这是指向新创建设备的父设备的指针。在你的案例中，xdev->pdev->dev 很可能指向你的设备所连接的 PCI 总线上的物理设备对象。
+
+重要性: 这个参数是至关重要的，它在 sysfs 中建立了设备之间的层次关系，决定了 /sys/class/<device_name>/device 符号链接会指向 /sys/devices/pci... 下的哪个物理设备。如果这个参数设置不正确，就会导致 sysfs 目录结构混乱，甚至是像你之前遇到的无限递归问题。
+
+xcdev->cdevno
+
+类型: dev_t
+
+作用: 这是设备号，包含主设备号（Major number）和次设备号（Minor number）。
+
+主设备号：决定了设备所使用的驱动程序。所有使用同一个主设备号的设备文件都会被关联到同一个驱动。次设备号：用于区分同一个驱动下的不同设备或功能。例如，xdma0_c2h_0 和 xdma0_c2h_1 可能共享同一个主设备号，但次设备号不同。
+
+在 device_create() 中的作用: 这个参数告诉内核设备号是什么，这样内核就可以在 /dev/ 目录下创建一个与此设备号关联的设备文件，例如 /dev/xdma0_c2h_0。它还会在 sysfs 目录中创建一个 dev 文件，其内容为 主设备号:次设备号，以便于用户空间程序获取设备号。
+
+NULL
+
+类型: void *
+
+作用: 这是 driver_data 参数。它允许你传递一个指向私有数据的指针，这个数据可以与 struct device 结构体关联，并在其他设备函数中通过 dev_get_drvdata() 获取。在这个调用中，它被设置为 NULL，表示没有与设备关联的私有数据。
+
+full_dev_name
+
+类型: const char *
+
+作用: 这是新创建设备的名称。内核将使用这个名称在 /sys/class/<class_name>/ 下创建目录（例如 es5311_0）和在 /dev/ 下创建设备文件（例如 xdma0_c2h_0）。
+
+xdev->idx 和 last_param
+
+类型: 变长参数
+
+作用: device_create() 函数是一个可变参数函数，这些参数用于格式化设备名称字符串。在你的例子中，full_dev_name 字符串中可能包含格式化占位符（如 %d），这些参数将用来填充这些占位符。
+
+xcdev->cdevno 中设备号的作用
+xcdev->cdevno 中的设备号在 device_create() 调用中起到了连接用户空间和内核驱动的关键作用。具体来说：
+
+/dev 文件创建: device_create() 会自动在 /dev 目录下为你创建设备节点文件。它会使用设备号来确保这个文件与你的驱动程序正确关联。
+
+驱动调用: 当用户空间程序通过 open()、read()、write() 等系统调用访问 /dev/ 下的设备文件时，内核会根据文件对应的设备号找到你的驱动程序，并调用其 cdev 结构体中注册的相应函数（即 file_operations）。
+
+唯一标识: 主设备号确保了设备与正确的驱动类型匹配，次设备号则确保了在同一驱动类型中，不同的设备实例能够被唯一区分。
+
+简而言之，设备号是用户空间访问设备时的“入口凭证”，而 device_create() 函数则负责将这个凭证与你驱动程序中的 cdev 结构体正确地绑定在一起。
+*/
 //======================================add by ycf 2025.8.13=============================================
+	char full_dev_name[256];
 	if(type==CDEV_CTRL){
+		snprintf(full_dev_name, sizeof(full_dev_name), "%s", es_cdev->device_name);
+		xcdev->sys_device = device_create(es_cdev->cdev_class, NULL, xcdev->cdevno, NULL, full_dev_name);
+		/*
 		xcdev->sys_device = device_create(es_cdev->cdev_class, &xdev->pdev->dev,xcdev->cdevno, NULL, es_cdev->device_name,
 		xdev->idx,last_param);
+		*/
 	}else
 //======================================add by ycf 2025.8.13=============================================
 	{
-		xcdev->sys_device = device_create(g_xdma_class, &xdev->pdev->dev,
+//======================================add by ycf 2025.8.18=============================================
+		snprintf(full_dev_name, sizeof(full_dev_name), "%s", devnode_names[type]);
+		xcdev->sys_device = device_create(es_cdev->cdev_class, NULL, xcdev->cdevno, NULL, full_dev_name,
+		xdev->idx,last_param);
+		
+/* 		xcdev->sys_device = device_create(g_xdma_class, &xdev->pdev->dev,
 		xcdev->cdevno, NULL, devnode_names[type], xdev->idx,
-		last_param);
+		last_param); */
+		
+//======================================add by ycf 2025.8.18=============================================
 	}
 
 	if (!xcdev->sys_device) {
@@ -331,8 +400,13 @@ static int destroy_xcdev(struct xdma_cdev *cdev)
 		return -EINVAL;
 	}
 
-	if (!g_xdma_class) {
+/* 	if (!g_xdma_class) {
 		pr_err("g_xdma_class NULL\n");
+		return -EINVAL;
+	} */
+	
+	if (!es_cdev->cdev_class) {
+		pr_err("es_cdev->cdev_class NULL\n");
 		return -EINVAL;
 	}
 
@@ -343,7 +417,7 @@ static int destroy_xcdev(struct xdma_cdev *cdev)
 
 	if (cdev->sys_device)
 	{
-		device_destroy(g_xdma_class, cdev->cdevno);
+		//device_destroy(g_xdma_class, cdev->cdevno);
 		
 		device_destroy(es_cdev->cdev_class, cdev->cdevno);//======================================add by ycf 2025.7.25=============================================
 	}
@@ -412,7 +486,7 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 			pr_warn("NULL point In info->read_reg Failed!\n");
 		}else {
 			inca_dt = info->read_reg(reg_base, DEVICE_BOARD_TYPE);
-			dbg_init("board type       = 0x%x\n", inca_dt);
+			printk("board type       = 0x%x\n", inca_dt);
 		}
 
 		if ((instance = get_board_instance(inca_dt)) < 0) {
@@ -434,14 +508,14 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 		es_cdev->board_inst = MINOR(xcdev->cdevno);
 		info->board_inst = instance;
 		init_device_info(info, reg_base);
-		dbg_init("board id         = 0x%x\n", info->board_id);
-		dbg_init("board instance   = 0x%x\n", info->board_inst);
-		dbg_init("board name       = %s  \n", info->device_name);
-		dbg_init("mdl_version      = 0x%x\n", info->mdl_version);
-		dbg_init("fpga_version     = 0x%x\n", info->fpga_version);
-		dbg_init("board_type       = 0x%x\n", info->board_type);
-		dbg_init("board serial     = 0x%x\n", info->serial);
-		dbg_init("board led_blink  = 0x%x\n", info->led_blink);
+		printk("board id         = 0x%x\n", info->board_id);
+		printk("board instance   = 0x%x\n", info->board_inst);
+		printk("board name       = %s  \n", info->device_name);
+		printk("mdl_version      = 0x%x\n", info->mdl_version);
+		printk("fpga_version     = 0x%x\n", info->fpga_version);
+		printk("board_type       = 0x%x\n", info->board_type);
+		printk("board serial     = 0x%x\n", info->serial);
+		printk("board led_blink  = 0x%x\n", info->led_blink);
 
 		sprintf(es_cdev->device_name, "%s_%d", get_board_name(inca_dt), es_cdev->board_inst);
 		strcpy(devnode_names[type],es_cdev->device_name);//设置设备文件名
@@ -491,7 +565,7 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 		break;
 //======================================add by ycf 2025.8.12=============================================
 	case CDEV_CTRL:
-		minor = type;
+		//minor = type;
         cdev_init(&xcdev->cdev, &vi53xx_xdma_fops);
 		break;
 //======================================add by ycf 2025.8.12=============================================
@@ -499,7 +573,14 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 		pr_info("type 0x%x NOT supported.\n", type);
 		return -EINVAL;
 	}
-	xcdev->cdevno = MKDEV(xpdev->major, minor);
+//======================================add by ycf 2025.8.14=============================================	
+	if(type==CDEV_CTRL){
+		
+	}else
+//======================================add by ycf 2025.8.14=============================================
+	{
+		xcdev->cdevno = MKDEV(xpdev->major, minor);
+	}
 
 	/* bring character device live */
 	rv = cdev_add(&xcdev->cdev, xcdev->cdevno, 1);
@@ -519,23 +600,24 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 	}
 	 */
 	if(type==CDEV_CTRL)
-	{	if (es_cdev->cdev_class) {
-			rv = create_sys_device(xcdev,type);//	创建 	proc/$VI53XX_DEV_NAME/$(es_cdev->device_name)	文件/proc/vi53xx/es5311_0
-			if (rv < 0)
-				goto del_cdev;
-		}
+	{	
 		create_proc_device(xcdev, devnode_names[type]);
-	}else 
-		
+	}
+	//else 
+		if (es_cdev->cdev_class) {
+				rv = create_sys_device(xcdev,type);//	创建 	proc/$VI53XX_DEV_NAME/$(es_cdev->device_name)	文件/proc/vi53xx/es5311_0
+				if (rv < 0)
+					goto del_cdev;
+		}
 //======================================add by ycf 2025.8.13=============================================
-	{
+/* 	{
 		// create device on our class 
 		if (g_xdma_class) {
 			rv = create_sys_device(xcdev, type);
 			if (rv < 0)
 				goto del_cdev;
 		}
-	}
+	} */
 
 
 	return 0;
@@ -761,12 +843,12 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev)
 //======================================add by ycf 2025.8.12=============================================
 #ifdef __XDMA_SYSFS__
 	/* sys file */
-	rv = device_create_file(&xpdev->pdev->dev,
+/* 	rv = device_create_file(&xpdev->pdev->dev,
 				&dev_attr_xdma_dev_instance);
 	if (rv) {
 		pr_err("Failed to create device file\n");
 		goto fail;
-	}
+	} */
 #endif
 
 	return 0;
@@ -784,7 +866,7 @@ int xdma_cdev_init(void)
 //======================================add by ycf 2025.7.25=============================================
 
 
-#if defined(RHEL_RELEASE_CODE)
+/* #if defined(RHEL_RELEASE_CODE)
     #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9, 4))
         g_xdma_class = class_create(XDMA_NODE_NAME);
     #else
@@ -798,7 +880,7 @@ int xdma_cdev_init(void)
 	if (IS_ERR(g_xdma_class)) {
 		dbg_init(XDMA_NODE_NAME ": failed to create class");
 		return -EINVAL;
-	}
+	} */
 
 
 	/* using kmem_cache_create to enable sequential cleanup */
@@ -820,8 +902,8 @@ void xdma_cdev_cleanup(void)
 		kmem_cache_destroy(cdev_cache);
 
 
-	if (g_xdma_class)
-		class_destroy(g_xdma_class);
+/* 	if (g_xdma_class)
+		class_destroy(g_xdma_class); */
 
 //======================================add by ycf 2025.7.25=============================================
 	vi53xx_cdev_exit();

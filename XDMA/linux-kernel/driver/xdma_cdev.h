@@ -56,15 +56,7 @@ enum cdev_type {
 	CDEV_CTRL,
 //======================================add by ycf 2025.8.12=============================================
 };
-//======================================add by ycf 2025.7.25=============================================
-struct es_cdev {
-	int major[BOARD_TEPE_NUM];		/* major number */
-	struct class *cdev_class;
-	dev_t dev;
-	char device_name[32];
-	uint32_t board_inst;
-};
-//======================================add by ycf 2025.7.25=============================================
+
 void xdma_cdev_cleanup(void);
 int xdma_cdev_init(void);
 

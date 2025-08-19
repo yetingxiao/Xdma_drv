@@ -395,7 +395,7 @@ static void xdma_write_reg(void *reg_base, unsigned int offset, unsigned int val
 	void *reg = reg_base + offset;
 
 	write_register(val, reg,0);
-	dbg_init("xdma write bar1 offset[0x%x] value = [0x%x]\n", offset, val);
+	//dbg_init("xdma write bar1 offset[0x%x] value = [0x%x]\n", offset, val);
 }
 
 unsigned int read_reg(void *reg_base, unsigned int offset)
@@ -4584,7 +4584,7 @@ struct xdma_dev *alloc_dev_instance(struct pci_dev *pdev)
 	xdev->bypass_bar_idx = -1;
 	xdev->irq_line = -1;
 
-	/* create a driver to device reference */
+	/* create a driver to device reference，pdev 赋值给 xdev->pdev，建立驱动数据结构与 PCI 设备结构体的关联。 */
 	xdev->pdev = pdev;
 	dbg_init("xdev = 0x%p\n", xdev);
 
@@ -4861,7 +4861,7 @@ static void pci_enable_capability(struct pci_dev *pdev, int cap)
 	}
 }
 #endif
-
+/*XDMA驱动程序的主要初始化入口点，在PCI设备被探测到时调用。它负责分配和初始化xdma_dev实例，配置 PCI 设备，映射BAR区域，设置DMA掩码，探测DMA引擎，并设置中断。*/
 void *xdma_device_open(const char *mname, struct pci_dev *pdev, int *user_max,
 		       int *h2c_channel_max, int *c2h_channel_max)
 {
@@ -4894,7 +4894,7 @@ void *xdma_device_open(const char *mname, struct pci_dev *pdev, int *user_max,
 	if (xdev->c2h_channel_max == 0 ||
 	    xdev->c2h_channel_max > XDMA_CHANNEL_NUM_MAX)
 		xdev->c2h_channel_max = XDMA_CHANNEL_NUM_MAX;
-
+/*将 xdev 添加到驱动程序的设备列表中*/
 	rv = xdev_list_add(xdev);
 	if (rv < 0)
 		goto free_xdev;
@@ -4920,7 +4920,7 @@ void *xdma_device_open(const char *mname, struct pci_dev *pdev, int *user_max,
 		pr_info("device %s, error set PCI_EXP_DEVCTL_READRQ: %d.\n",
 			dev_name(&pdev->dev), rv);
 
-	/* enable bus master capability */
+	/* enable bus master capability启用总线主控：调用 pci_set_master(pdev) 使设备能够作为总线主控发起 DMA 传输 */
 	pci_set_master(pdev);
 
 	rv = request_regions(xdev, pdev);
@@ -4997,7 +4997,7 @@ free_xdev:
 	kfree(xdev);
 	return NULL;
 }
-
+/*XDMA 驱动程序的主要退出点,在 PCI设备被移除或驱动程序卸载时调用,它负责释放所有已分配的资源。*/
 void xdma_device_close(struct pci_dev *pdev, void *dev_hndl)
 {
 	struct xdma_dev *xdev = (struct xdma_dev *)dev_hndl;
@@ -5100,7 +5100,7 @@ void xdma_device_offline(struct pci_dev *pdev, void *dev_hndl)
 
 	pr_info("xdev 0x%p, done.\n", xdev);
 }
-
+/*将XDMA设备从离线状态置于在线状态，使其可以重新开始处理DMA传输*/
 void xdma_device_online(struct pci_dev *pdev, void *dev_hndl)
 {
 	struct xdma_dev *xdev = (struct xdma_dev *)dev_hndl;

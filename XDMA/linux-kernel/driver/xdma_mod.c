@@ -35,9 +35,11 @@
 //======================================add by ycf 2025.8.12=============================================
 #include "board_info.h"
 
+/* 
 int vi53xx_debug = 0;
 module_param(vi53xx_debug, int, 0644);
-MODULE_PARM_DESC(vi53xx_debug, "Activate debugging for vi53xx module (default:0=off).");
+MODULE_PARM_DESC(vi53xx_debug, "Activate debugging for vi53xx module (default:0=off)."); 
+*/
 
 
 #define DRV_MODULE_NAME		    "vi53xx"

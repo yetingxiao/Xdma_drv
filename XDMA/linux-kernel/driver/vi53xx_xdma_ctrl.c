@@ -45,6 +45,7 @@ static int copy_from_user__buffer(void *data, void __user *buf, size_t size)
 
 static int vi53xx_xdma_stop(struct xdma_dev *xdev, int channel, int dir)
 {
+	//pr_info("Before Vi53xx_xdma_ctrl.c vi53xx_xdma_stop \n");
 	if (xdev->fops->stop)
 		xdev->fops->stop(xdev, channel, dir);
 
@@ -61,10 +62,10 @@ static int vi53xx_xdma_reg(struct xdma_dev *xdev, struct vi53xx_xdma_info *info)
     reg_base = xdev->bar[info->bar];
     offset = info->offset;
     val = info->w_val;
-
+	//pr_info("Before Vi53xx_xdma_ctrl.c vi53xx_xdma_reg \n");
     if (info->wr == READ) {
         val  = xdev->fops->read_reg(reg_base, offset);
-        dbg_init("read bar[%d] offset[0x%x] value = [0x%x]\n",info->bar, offset, val);
+        //dbg_init("read bar[%d] offset[0x%x] value = [0x%x]\n",info->bar, offset, val);
         ret = copy_to_user__buffer(&val, info->r_val, sizeof(unsigned int));
     } else if (info->wr == WRITE) {
         xdev->fops->write_reg(reg_base, offset, val);
@@ -83,7 +84,7 @@ static int vi53xx_xdma_start(struct xdma_dev *xdev, int channel, int dir)
     } else if (dir == C2H_DIR) {
         cfg = xdev->C2H_dma_cfg[channel];
     }
-
+	//pr_info("Before Vi53xx_xdma_ctrl.c vi53xx_xdma_start \n");
     if (xdev->fops->start_desc)
         xdev->fops->start_desc(xdev, channel, &cfg);
     if (xdev->fops->start)
@@ -128,7 +129,7 @@ long vi53xx_ioctl_xdma(unsigned int cmd, unsigned long arg, void *data)
     struct xdma_cfg_info cfg;
 	struct xdma_dev *xdev = (struct xdma_dev *)data;
     int pos = 0;
-
+	//pr_info("Before Vi53xx_xdma_ctrl.c vi53xx_ioctl_xdma \n");
 	switch (cmd) {
 	case CMD_XDMA_INIT:
 		ret = copy_from_user__buffer(&xdma_info, (void *)arg, sizeof(struct vi53xx_xdma_info));
@@ -212,7 +213,7 @@ static int _xdma_mmap(struct xdma_dev *xdev, struct vi53xx_xdma_info *info, stru
 int _vi53xx_xdma_mmap(struct vm_area_struct *vma, void *data)
 {
 	struct xdma_dev *xdev = (struct xdma_dev *)data;
-
+	//pr_info("Before Vi53xx_xdma_ctrl.c _vi53xx_xdma_mmap \n");
 	return _xdma_mmap(xdev, get_xdma_setting(), vma);
 }
 

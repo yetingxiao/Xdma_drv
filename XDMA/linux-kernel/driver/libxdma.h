@@ -228,7 +228,7 @@ struct xdma_channel_addr {
 #define WB_ERR_MASK (1UL << 31)
 #define POLL_TIMEOUT_SECONDS 10
 
-#define MAX_USER_IRQ 16
+#define MAX_USER_IRQ 4
 
 #define MAX_DESC_BUS_ADDR (0xffffffffULL)
 
@@ -508,7 +508,8 @@ struct xdma_poll_wb {
 } __packed;
 
 
-/**
+/*** 用于传输单个连续内存块的描述符。多个描述符通过 next 指针链接。额外的相邻数字表示额外的连续描述符的数量。
+* 描述符位于根复合体内存中，32 位字中的字节必须采用小端字节序。
  * Descriptor for a single contiguous memory block transfer.
  *
  * Multiple descriptors are linked by means of the next pointer. An additional
@@ -544,7 +545,7 @@ struct sw_desc {
 	dma_addr_t addr;
 	unsigned int len;
 };
-
+/*构建并提交一个或多个DMA描述符构成的 xdma_transfer*/
 /* Describes a (SG DMA) single transfer for the engine */
 #define XFER_FLAG_NEED_UNMAP		0x1
 #define XFER_FLAG_ST_C2H_EOP_RCVED	0x2	/* ST c2h only */ 
@@ -574,7 +575,7 @@ struct xdma_transfer {
 	struct sg_table *sgt;
 	struct xdma_io_cb *cb;
 };
-
+/*代表了一个DMA请求，并且封装了用于驱动硬件DMA引擎的底层细节，包括scatter-gather (SG) 列表的处理和DMA 描述符的准备,将sgt转换为一系列软件描述符*/
 struct xdma_request_cb {
 	struct sg_table *sgt;
 	u64 ep_addr;
@@ -719,7 +720,7 @@ struct xdma_fops {
     int (*xdma_mmap)(struct xdma_dev *xdev, void *vm, struct xdma_cfg_info *cfg);
 };
 //===================================add by ycf 2025.7.25===============================
-/* XDMA PCIe device specific book-keeping */
+/* XDMA PCIe device specific book-keeping 代表了一个 XDMA 设备，是驱动程序管理设备的核心数据结构。*/
 #define XDEV_FLAG_OFFLINE	0x1
 struct xdma_dev {
 	struct list_head list_head;
@@ -754,7 +755,7 @@ struct xdma_dev {
 #if KERNEL_VERSION(4, 12, 0) > LINUX_VERSION_CODE
 	struct msix_entry entry[32];	/* msi-x vector/entry table */
 #endif
-	struct xdma_user_irq user_irq[16];	/* user IRQ management */
+	struct xdma_user_irq user_irq[4];	/* user IRQ management */
 	unsigned int mask_irq_user;
 
 	/* XDMA engine management */
@@ -790,6 +791,16 @@ struct xdma_cdev {
 	//add ycf=======================
 };
 
+//======================================add by ycf 2025.7.25=============================================
+struct es_cdev {
+	int major[BOARD_TEPE_NUM];		/* major number */
+	struct class *cdev_class;
+	dev_t dev;
+	char device_name[32];
+	uint32_t board_inst;
+};//replace  1.static struct class *g_xdma_class; 2.static const char * const devnode_names[type] 3.dev_t dev;
+//======================================add by ycf 2025.7.25=============================================
+
 /* XDMA PCIe device specific book-keeping */
 struct xdma_pci_dev {
 	unsigned long magic;		/* structure ID for sanity checks */
@@ -806,7 +817,7 @@ struct xdma_pci_dev {
 	struct xdma_cdev ctrl_cdev;
 	struct xdma_cdev sgdma_c2h_cdev[XDMA_CHANNEL_NUM_MAX];
 	struct xdma_cdev sgdma_h2c_cdev[XDMA_CHANNEL_NUM_MAX];
-	struct xdma_cdev events_cdev[16];
+	struct xdma_cdev events_cdev[4];//16->4
 
 	struct xdma_cdev user_cdev;
 	struct xdma_cdev bypass_c2h_cdev[XDMA_CHANNEL_NUM_MAX];

@@ -61,7 +61,10 @@ static int boards_show(struct seq_file *m, void *v)
 	struct xdma_cdev *xcdev;
 
 	list_for_each_entry(xpdev, &pcie_device_list, list) {
-		xcdev = &xpdev->ctrl_cdev;
+//======================================add by ycf 2025.8.15=============================================
+		//xcdev = &xpdev->ctrl_cdev;
+		xcdev = &xpdev->vi53xx_ctrl_cdev;
+//======================================add by ycf 2025.8.15=============================================
 		seq_printf(m, "%-10s %d %d:%d %04x:%04x %04x:%02x:%02x.%01x %d:%d\n",
 						xcdev->info.device_name,  // name of board/device
 						MINOR(xcdev->cdevno),   // logical instance number
@@ -93,7 +96,10 @@ static int mapping_show(struct seq_file *m, void *v)
 	struct xdma_cdev *xcdev;
 
 	list_for_each_entry(xpdev, &pcie_device_list, list) {
-		xcdev = &xpdev->ctrl_cdev;
+//======================================add by ycf 2025.8.15=============================================
+		//xcdev = &xpdev->ctrl_cdev;
+		xcdev = &xpdev->vi53xx_ctrl_cdev;
+//======================================add by ycf 2025.8.15=============================================
 		seq_printf(m, "%-10s %d:%d:0x%x\n",
 						xcdev->info.device_name,  // name of board/device
 						MINOR(xcdev->cdevno),    // logical instance number
@@ -170,7 +176,10 @@ ssize_t device_write(struct file *file, const char __user *buf,
 	struct xdma_cfg_info *cfg;
 	struct xdma_cdev *xcdev = to_device_file(file);
     struct device_info *info = &xcdev->info;
-	struct xdma_pci_dev  *xpdev= container_of(xcdev, struct xdma_pci_dev, ctrl_cdev);
+//======================================add by ycf 2025.8.15=============================================
+	//struct xdma_pci_dev  *xpdev= container_of(xcdev, struct xdma_pci_dev, ctrl_cdev);
+	struct xdma_pci_dev  *xpdev= container_of(xcdev, struct xdma_pci_dev, vi53xx_ctrl_cdev);
+//======================================add by ycf 2025.8.15=============================================
 
 	if(copy_from_user(k_buf, buf, len))
 		return -EFAULT;

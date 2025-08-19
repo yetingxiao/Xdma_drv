@@ -2,7 +2,7 @@ SHELL = /bin/bash
 #
 # optional makefile parameters:
 # - DEBUG=<0|1>,	enable verbose debug print-out in the driver
-#DEBUG	=	0
+DEBUG	=	0
 # - config_bar_num=,	xdma pci config bar number
 # - xvc_bar_num=,	xvc pci bar #
 # - xvc_bar_offset=,	xvc register base offset
