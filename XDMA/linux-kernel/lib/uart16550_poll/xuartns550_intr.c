@@ -337,6 +337,7 @@ static void ReceiveTimeoutHandler(XUartNs550 *InstancePtr)
 static void ReceiveDataHandler(XUartNs550 *InstancePtr)
 {
 	u32 Event;
+	printf("XUartNs550_InterruptHandler For ReceiveDataHandler\r\n");
 
 	/*
 	 * If there are bytes still to be received in the specified buffer
@@ -404,7 +405,7 @@ static void ReceiveDataHandler(XUartNs550 *InstancePtr)
 static void SendDataHandler(XUartNs550 *InstancePtr)
 {
 	u32 IerRegister;
-
+	printf("XUartNs550_InterruptHandler For SendDataHandler\r\n");
 	/** 如果指定缓冲区没有要发送的字节，则中断服务程序会禁用发送空中断，这样它就会停止中断，因为FIFO 为空时就会中断
 	 * If there are not bytes to be sent from the specified buffer then
 	 * disable the transmit interrupt so it will stop interrupting as it

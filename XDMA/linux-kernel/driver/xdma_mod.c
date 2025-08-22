@@ -425,13 +425,11 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		 * TODO: exact error code will be defined later
 		 */
 		printk(KERN_INFO "register user interrupt \n");	
-		//XUartNs550 *UartInstancePtr=kmalloc(sizeof(XUartNs550),GFP_KERNEL);
-		XUartNs550 *UartInstancePtr=&UartNs550Instance;
-		if (UartInstancePtr == NULL) {
+		if (&UartNs550Instance == NULL) {
 			pr_err("Failed to allocate memory for UartInstancePtr\n");
 			return -ENOMEM;
 		}
-		ret=xdma_user_isr_register(xpdev->xdev,mask,(irq_handler_t)XUartNs550_KernelIntHandlerEntry,UartInstancePtr);
+		ret=xdma_user_isr_register(xpdev->xdev,1<<0,(irq_handler_t)XUartNs550_KernelIntHandlerEntry,&UartNs550Instance);
 		if (ret < 0) {
 			pr_err("Failed to register XDMA user ISR\n");
 			return ret;
@@ -439,6 +437,10 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		pr_info("BAR%d mapped at 0x%p\n", 0,xdev->bar[0]);
 		UART_KERNEL_REGS=xdev->bar[0];
 		IS_KERNEL_MAPPED=1;
+//======================================add by ycf 2025.8.7=============================================	
+		printk(KERN_INFO "AXIUart: Before Cdev Initializing\n");	
+		AXIUart_cdev_init();
+//======================================add by ycf 2025.8.7=============================================
 		//======================================add by ycf 2025.8.4=============================================
 	}
 	
@@ -450,10 +452,7 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	vi53xx_unlock();
 //======================================add by ycf 2025.7.27=============================================	
 
-//======================================add by ycf 2025.8.7=============================================	
-	printk(KERN_INFO "AXIUart: Before Cdev Initializing\n");	
-	AXIUart_cdev_init();
-//======================================add by ycf 2025.8.7=============================================
+
 
 	return 0;
 
@@ -610,6 +609,8 @@ static int xdma_mod_init(void)
 	rv = xdma_cdev_init();
 	if (rv < 0)
 		return rv;
+	
+
 
 	return pci_register_driver(&pci_driver);
 	
@@ -621,11 +622,11 @@ static void xdma_mod_exit(void)
 	/* unregister this driver from the PCI bus driver */
 	dbg_init("pci_unregister_driver.\n");
 	pci_unregister_driver(&pci_driver);
+	AXIUart_cdev_exit();
 	xdma_cdev_cleanup();
 //======================================add by ycf 2025.8.7=============================================
 	//vi53xx_xdma_mod_exit();
 	board_info_exit();
-	AXIUart_cdev_exit();
 //======================================add by ycf 2025.8.7=============================================
 }
 

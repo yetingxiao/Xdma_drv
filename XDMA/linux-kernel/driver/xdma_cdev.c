@@ -26,7 +26,7 @@
 #include "board_info.h"
 #include "vi53xx_xdma_ctrl.h"
 
-struct es_cdev *es_cdev;//replace  1.static struct class *g_xdma_class; 2.static const char * const devnode_names[type] 3.dev_t dev;
+struct es_cdev *es_cdevPtr;//replace  1.static struct class *g_xdma_class; 2.static const char * const devnode_names[type] 3.dev_t dev;
 //======================================add by ycf 2025.7.25=============================================
 //static struct class *g_xdma_class;
 
@@ -298,8 +298,8 @@ static int create_sys_device(struct xdma_cdev *xcdev, enum cdev_type type)
 		last_param = engine ? engine->channel : 0;
 
 /*
-device_create(es_cdev->cdev_class, &xdev->pdev->dev, xcdev->cdevno, NULL, full_dev_name, xdev->idx, last_param);
-es_cdev->cdev_class
+device_create(es_cdevPtr->cdev_class, &xdev->pdev->dev, xcdev->cdevno, NULL, full_dev_name, xdev->idx, last_param);
+es_cdevPtr->cdev_class
 
 类型: struct class *
 
@@ -355,10 +355,10 @@ xcdev->cdevno 中的设备号在 device_create() 调用中起到了连接用户�
 //======================================add by ycf 2025.8.13=============================================
 	char full_dev_name[256];
 	if(type==CDEV_CTRL){
-		snprintf(full_dev_name, sizeof(full_dev_name), "%s", es_cdev->device_name);
-		xcdev->sys_device = device_create(es_cdev->cdev_class, NULL, xcdev->cdevno, NULL, full_dev_name);
+		snprintf(full_dev_name, sizeof(full_dev_name), "%s", es_cdevPtr->device_name);
+		xcdev->sys_device = device_create(es_cdevPtr->cdev_class, NULL, xcdev->cdevno, NULL, full_dev_name);
 		/*
-		xcdev->sys_device = device_create(es_cdev->cdev_class, &xdev->pdev->dev,xcdev->cdevno, NULL, es_cdev->device_name,
+		xcdev->sys_device = device_create(es_cdevPtr->cdev_class, &xdev->pdev->dev,xcdev->cdevno, NULL, es_cdevPtr->device_name,
 		xdev->idx,last_param);
 		*/
 	}else
@@ -366,7 +366,7 @@ xcdev->cdevno 中的设备号在 device_create() 调用中起到了连接用户�
 	{
 //======================================add by ycf 2025.8.18=============================================
 		snprintf(full_dev_name, sizeof(full_dev_name), "%s", devnode_names[type]);
-		xcdev->sys_device = device_create(es_cdev->cdev_class, NULL, xcdev->cdevno, NULL, full_dev_name,
+		xcdev->sys_device = device_create(es_cdevPtr->cdev_class, NULL, xcdev->cdevno, NULL, full_dev_name,
 		xdev->idx,last_param);
 		
 /* 		xcdev->sys_device = device_create(g_xdma_class, &xdev->pdev->dev,
@@ -405,8 +405,8 @@ static int destroy_xcdev(struct xdma_cdev *cdev)
 		return -EINVAL;
 	} */
 	
-	if (!es_cdev->cdev_class) {
-		pr_err("es_cdev->cdev_class NULL\n");
+	if (!es_cdevPtr->cdev_class) {
+		pr_err("es_cdevPtr->cdev_class NULL\n");
 		return -EINVAL;
 	}
 
@@ -419,7 +419,7 @@ static int destroy_xcdev(struct xdma_cdev *cdev)
 	{
 		//device_destroy(g_xdma_class, cdev->cdevno);
 		
-		device_destroy(es_cdev->cdev_class, cdev->cdevno);//======================================add by ycf 2025.7.25=============================================
+		device_destroy(es_cdevPtr->cdev_class, cdev->cdevno);//======================================add by ycf 2025.7.25=============================================
 	}
 
 	cdev_del(&cdev->cdev);
@@ -499,13 +499,13 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 			return -EINVAL;
 		}
 		
-		if(es_cdev==NULL)
+		if(es_cdevPtr==NULL)
 		{
-			pr_warn("NULL point In es_cdev Failed!\n");
+			pr_warn("NULL point In es_cdevPtr Failed!\n");
 		}
 		n = get_major_idx(inca_dt);
-		xcdev->cdevno = MKDEV(es_cdev->major[n], instance);
-		es_cdev->board_inst = MINOR(xcdev->cdevno);
+		xcdev->cdevno = MKDEV(es_cdevPtr->major[n], instance);
+		es_cdevPtr->board_inst = MINOR(xcdev->cdevno);
 		info->board_inst = instance;
 		init_device_info(info, reg_base);
 		printk("board id         = 0x%x\n", info->board_id);
@@ -517,8 +517,8 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 		printk("board serial     = 0x%x\n", info->serial);
 		printk("board led_blink  = 0x%x\n", info->led_blink);
 
-		sprintf(es_cdev->device_name, "%s_%d", get_board_name(inca_dt), es_cdev->board_inst);
-		strcpy(devnode_names[type],es_cdev->device_name);//设置设备文件名
+		sprintf(es_cdevPtr->device_name, "%s_%d", get_board_name(inca_dt), es_cdevPtr->board_inst);
+		strcpy(devnode_names[type],es_cdevPtr->device_name);//设置设备文件名
 //======================================add by ycf 2025.7.25=============================================
 	}
 //======================================add by ycf 2025.8.13=============================================
@@ -596,7 +596,7 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 /* 	
 	if(type==CDEV_CTRL)
 	{	
-		create_proc_device(xcdev, es_cdev->device_name);
+		create_proc_device(xcdev, es_cdevPtr->device_name);
 	}
 	 */
 	if(type==CDEV_CTRL)
@@ -604,8 +604,8 @@ static int create_xcdev(struct xdma_pci_dev *xpdev, struct xdma_cdev *xcdev,
 		create_proc_device(xcdev, devnode_names[type]);
 	}
 	//else 
-		if (es_cdev->cdev_class) {
-				rv = create_sys_device(xcdev,type);//	创建 	proc/$VI53XX_DEV_NAME/$(es_cdev->device_name)	文件/proc/vi53xx/es5311_0
+		if (es_cdevPtr->cdev_class) {
+				rv = create_sys_device(xcdev,type);//	创建 	proc/$VI53XX_DEV_NAME/$(es_cdevPtr->device_name)	文件/proc/vi53xx/es5311_0
 				if (rv < 0)
 					goto del_cdev;
 		}
@@ -917,13 +917,13 @@ void vi53xx_request_majorDevId()
 		int i,rv;
 		for (i=0; i<BOARD_TEPE_NUM; i++) {
 		// allocate a dynamically allocated char device node 
-		rv = alloc_chrdev_region(&es_cdev->dev, 0, 128, VI53XX_DEV_NAME);
+		rv = alloc_chrdev_region(&es_cdevPtr->dev, 0, 128, VI53XX_DEV_NAME);
 		if (rv) {
 			pr_err("unable to allocate cdev region %d.\n", rv);
 			return rv;
 		}
 
-		es_cdev->major[i] = MAJOR(es_cdev->dev);
+		es_cdevPtr->major[i] = MAJOR(es_cdevPtr->dev);
 	}	
 }
 
@@ -931,7 +931,7 @@ void vi53xx_release_majorDevId()
 {
 	int i;
 	for (i=0; i<BOARD_TEPE_NUM; i++) {
-		unregister_chrdev_region(MKDEV(es_cdev->major[i], 0), 255);
+		unregister_chrdev_region(MKDEV(es_cdevPtr->major[i], 0), 255);
 	}
 }
 
@@ -939,13 +939,13 @@ void vi53xx_cdev_exit(void)
 {
 	 
 
-    if (es_cdev->cdev_class)
-		class_destroy(es_cdev->cdev_class);
+    if (es_cdevPtr->cdev_class)
+		class_destroy(es_cdevPtr->cdev_class);
 
 
-	if (es_cdev) {
-		kfree(es_cdev);
-		es_cdev = NULL;
+	if (es_cdevPtr) {
+		kfree(es_cdevPtr);
+		es_cdevPtr = NULL;
 	}
 }
 
@@ -955,12 +955,12 @@ int vi53xx_cdev_init(void)
 {
 	int i, rv;
 
-	es_cdev  = kmalloc(sizeof(*es_cdev), GFP_KERNEL);
-	if (!es_cdev)
+	es_cdevPtr  = kmalloc(sizeof(struct es_cdev), GFP_KERNEL);
+	if (!es_cdevPtr)
 		return -1;
 
-    es_cdev->cdev_class = class_create(THIS_MODULE, VI53XX_DEV_NAME);
-    if (IS_ERR(es_cdev->cdev_class)) {
+    es_cdevPtr->cdev_class = class_create(THIS_MODULE, VI53XX_DEV_NAME);
+    if (IS_ERR(es_cdevPtr->cdev_class)) {
         dbg_init(VI53XX_DEV_NAME ": failed to create class");
         return -1;
     }

@@ -56,6 +56,7 @@ enum cdev_type {
 	CDEV_CTRL,
 //======================================add by ycf 2025.8.12=============================================
 };
+extern struct es_cdev *es_cdevPtr;
 
 void xdma_cdev_cleanup(void);
 int xdma_cdev_init(void);

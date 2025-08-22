@@ -148,6 +148,7 @@ int XUartNs550_CfgInitialize(XUartNs550 *InstancePtr,
 	 * Setup the data that is from the configuration information
 	 */
 	InstancePtr->BaseAddress = EffectiveAddr;
+	pr_info("InstancePtr->BaseAddress 0x%p:\n",EffectiveAddr);
 	InstancePtr->InputClockHz = Config->InputClockHz;
 
 	/*
@@ -276,7 +277,7 @@ unsigned int XUartNs550_Send(XUartNs550 *InstancePtr, u8 *BufferPtr,
 	Xil_AssertNonvoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
 	Xil_AssertNonvoid(((signed)NumBytes) >= 0);
 
-	/*
+	/** 通过禁用UART发送中断进入关键区域，允许此调用停止之前可能被中断驱动的操作，仅停止发送中断，因为此关键区域无法以正常方式退出
 	 * Enter a critical region by disabling the UART transmit interrupts to
 	 * allow this call to stop a previous operation that may be interrupt
 	 * driven, only stop the transmit interrupt since this critical region
@@ -550,8 +551,8 @@ unsigned int XUartNs550_SendBuffer(XUartNs550 *InstancePtr)
 	 InstancePtr->Stats.CharactersTransmitted += SentCount;
 
 	/** 
-	* 如果接收中断指示已启用中断，则
-	* 启用发送中断。发送中断不会持续启用，因为每当FIFO为空时，它都会触发中断
+	* 如果接收中断指示已启用中断，则启用发送中断。
+	*发送中断不会持续启用，因为每当FIFO为空时，它都会触发中断
 	 * If interrupts are enabled as indicated by the receive interrupt, then
 	 * enable the transmit interrupt, it is not enabled continuously because
 	 * it causes an interrupt whenever the FIFO is empty

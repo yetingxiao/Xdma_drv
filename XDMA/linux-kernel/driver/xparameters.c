@@ -1,9 +1,9 @@
 #include <stddef.h>
 #include <linux/printk.h>
-volatile unsigned char *	UART_KERNEL_REGS=NULL;
-char IS_KERNEL_MAPPED=0;
+volatile void __iomem * 		UART_KERNEL_REGS=NULL;
+char IS_KERNEL_MAPPED=1;
 
-unsigned char* 	GetUartKernelBase(void) {
+void __iomem *	GetUartKernelBase(void) {
 	if(IS_KERNEL_MAPPED)
 	{
 		//IS_KERNEL_MAPPED=0;

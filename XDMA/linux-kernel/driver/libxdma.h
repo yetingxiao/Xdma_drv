@@ -601,7 +601,7 @@ struct xdma_request_cb {
 	struct sw_desc sdesc[0];
 #endif
 };
-
+/*每个引擎对应一个DMA 通道，记录寄存器偏移、方向（H2C/C2H）、当前状态、spinlock、工作队列*/
 struct xdma_engine {
 	unsigned long magic;	/* structure ID for sanity checks */
 	struct xdma_dev *xdev;	/* parent device */

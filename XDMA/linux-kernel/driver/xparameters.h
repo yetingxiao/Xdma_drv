@@ -31,9 +31,9 @@ extern "C" {
 #endif
 #define UARTNS550_0_BASEADDR 	0x30000 // 假设 UART 从 BAR 0 的地址 0x3_0000 开始
 #define UARTNS550_1_BASEADDR    0x40000 /* IPIF base address */
-extern unsigned char * GetUartKernelBase(void);
+extern void __iomem * GetUartKernelBase(void);
 extern char IS_KERNEL_MAPPED;
-extern volatile unsigned char __iomem *	UART_KERNEL_REGS;
+extern volatile void __iomem *	UART_KERNEL_REGS;
 /*****************************************************************************
  *
  * NS16550 UART defines.

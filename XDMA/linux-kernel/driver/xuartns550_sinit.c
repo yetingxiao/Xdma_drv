@@ -68,20 +68,22 @@ XUartNs550_Config *XUartNs550_LookupConfig(u16 DeviceId)
 {
 	XUartNs550_Config *CfgPtr = NULL;
 	u32 Index;
+	void __iomem  * UART_REGS;
 	//=========================add by ycf 2025.8.8====================
 	XUartNs550_Config temp;
-	unsigned char *UART_REGS=GetUartKernelBase();
-
+	if(IS_KERNEL_MAPPED==1)
+		UART_REGS=GetUartKernelBase();
+	pr_info("UART BaseAddress 0x%p:\n",UART_REGS);
 	{
 		temp.DeviceId		=	XPAR_UARTNS550_0_DEVICE_ID;
-		temp.BaseAddress	=	UART_REGS+UARTNS550_0_BASEADDR;
+		temp.BaseAddress	=	UART_REGS+0x30000;
 		temp.InputClockHz	=	XPAR_UARTNS550_0_CLOCK_HZ;
 	}
 	XUartNs550_ConfigTable[0] =temp;
 
 	{
 		temp.DeviceId		=	XPAR_UARTNS550_1_DEVICE_ID;
-		temp.BaseAddress	=	UART_REGS+UARTNS550_1_BASEADDR;
+		temp.BaseAddress	=	UART_REGS+0x40000;
 		temp.InputClockHz	=	XPAR_UARTNS550_1_CLOCK_HZ;
 	}
 	XUartNs550_ConfigTable[1] =temp;

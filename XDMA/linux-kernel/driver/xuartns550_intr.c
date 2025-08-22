@@ -38,7 +38,6 @@
 *****************************************************************************/
 
 /***************************** Include Files ********************************/
-
 #include "xuartns550.h"
 #include "xuartns550_i.h"
 #include "xil_io.h"
@@ -163,9 +162,10 @@ void XUartNs550_InterruptHandler(XUartNs550 *InstancePtr)
 //======================================add by ycf 2025.8.8=============================================
 irqreturn_t XUartNs550_KernelIntHandlerEntry (int irq, void *dev_id)
 {
-	pr_info("User IRQ handler for channel %d triggered! My private data is %p\n", irq,(XUartNs550 *)dev_id);
-    return IRQ_HANDLED;
+	//pr_info("User IRQ handler \n");
+	//XUartNs550 *UartInstancePtr =(XUartNs550 *)dev_id;
 	XUartNs550_InterruptHandler((XUartNs550 *)dev_id);
+	//return IRQ_HANDLED;
 }
 //======================================add by ycf 2025.8.8=============================================
 /****************************************************************************/

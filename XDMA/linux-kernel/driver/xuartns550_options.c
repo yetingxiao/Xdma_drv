@@ -445,6 +445,29 @@ int XUartNs550_IsSending(XUartNs550 *InstancePtr)
 	return ((LsrRegister & XUN_LSR_TX_EMPTY) == 0);
 }
 
+int XUartNs550_ReceiveDataNotReady(XUartNs550 *InstancePtr)
+{
+	u32 LsrRegister;
+
+	/*
+	 * Assert validates the input arguments
+	 */
+	Xil_AssertNonvoid(InstancePtr != NULL);
+
+	/*
+	 * Read the line status register to determine if the transmitter is
+	 * empty
+	 */
+	LsrRegister = XUartNs550_GetLineStatusReg(InstancePtr->BaseAddress);
+
+	/*
+	 * If the transmitter data is not ready  then indicate that the UART is still
+	 * Receiveing some data
+	 */
+	return ((LsrRegister & XUN_LSR_DATA_READY) == 0);
+}
+
+
 /****************************************************************************/
 /**
 *

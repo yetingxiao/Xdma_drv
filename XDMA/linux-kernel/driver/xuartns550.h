@@ -297,7 +297,7 @@ irqreturn_t XUartNs550_KernelIntHandlerEntry (int irq, void *dev_id);
  */
 typedef struct {
 	u16 DeviceId;		/**< Unique ID  of device */
-	volatile UINTPTR BaseAddress;	/**< Base address of device */
+	volatile void __iomem * BaseAddress;	/**< Base address of device */
 	u32 InputClockHz;	/**< Input clock frequency */
 	u32 DefaultBaudRate;	/**< Baud Rate in bps, ie 1200 */
 } XUartNs550_Config;
@@ -411,6 +411,7 @@ int XUartNs550_SetFifoThreshold(XUartNs550 *InstancePtr,
 u8 XUartNs550_GetFifoThreshold(XUartNs550 *InstancePtr);
 
 int XUartNs550_IsSending(XUartNs550 *InstancePtr);
+int XUartNs550_ReceiveDataNotReady(XUartNs550 *InstancePtr);
 
 u8 XUartNs550_GetLastErrors(XUartNs550 *InstancePtr);
 

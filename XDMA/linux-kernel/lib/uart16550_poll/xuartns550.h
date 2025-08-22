@@ -173,7 +173,7 @@ extern "C" {
  * numbers are based only on the testing that has been done. The hardware
  * is capable of other baud rates.
  */
-#define XUN_NS16550_MAX_RATE		115200
+#define XUN_NS16550_MAX_RATE		6250000
 #define XUN_NS16550_MIN_RATE		300
 
 /** @name Configuration options

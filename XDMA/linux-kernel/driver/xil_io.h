@@ -116,7 +116,7 @@ static INLINE u8 Xil_In8(UINTPTR Addr)
 {
 	//======================================add by ycf 2025.8.8=============================================
 	//return *(volatile u8 *) Addr;
-	ioread8((volatile u8 *) Addr);
+	ioread8((volatile u8  __iomem *) Addr);
 	//======================================add by ycf 2025.8.8=============================================
 }
 
@@ -136,7 +136,7 @@ static INLINE u16 Xil_In16(UINTPTR Addr)
 {
 	//======================================add by ycf 2025.8.8=============================================
 	//return *(volatile u16 *) Addr;
-	ioread16((volatile u16 *) Addr);
+	ioread16((volatile u16  __iomem *) Addr);
 	//======================================add by ycf 2025.8.8=============================================
 }
 
@@ -156,7 +156,7 @@ static INLINE u32 Xil_In32(UINTPTR Addr)
 {
 	//======================================add by ycf 2025.8.8=============================================
 	return *(volatile u32 *) Addr;
-	ioread32((volatile u32 *) Addr);
+	ioread32((volatile u32  __iomem *) Addr);
 	//======================================add by ycf 2025.8.8=============================================
 }
 
@@ -176,7 +176,7 @@ static INLINE u64 Xil_In64(UINTPTR Addr)
 {
 	//======================================add by ycf 2025.8.8=============================================
 	//return *(volatile u64 *) Addr;
-	ioread64((volatile u64 *) Addr);
+	ioread64((volatile u64  __iomem *) Addr);
 	//======================================add by ycf 2025.8.8=============================================
 }
 
@@ -196,7 +196,7 @@ static INLINE u64 Xil_In64(UINTPTR Addr)
 static INLINE void Xil_Out8(UINTPTR Addr, u8 Value)
 {
 	//======================================add by ycf 2025.8.8=============================================
-	volatile u8 *LocalAddr = (volatile u8 *)Addr;
+	volatile u8  __iomem  *LocalAddr = (volatile u8 *)Addr;
 	//*LocalAddr = Value;
 	iowrite8(Value,LocalAddr);
 	//======================================add by ycf 2025.8.8=============================================
@@ -217,7 +217,7 @@ static INLINE void Xil_Out8(UINTPTR Addr, u8 Value)
 static INLINE void Xil_Out16(UINTPTR Addr, u16 Value)
 {
 	//======================================add by ycf 2025.8.8=============================================
-	volatile u16 *LocalAddr = (volatile u16 *)Addr;
+	volatile u16  __iomem  *LocalAddr = (volatile u16 *)Addr;
 	//*LocalAddr = Value;
 	iowrite16(Value,LocalAddr);
 	//======================================add by ycf 2025.8.8=============================================
@@ -239,7 +239,7 @@ static INLINE void Xil_Out16(UINTPTR Addr, u16 Value)
 static INLINE void Xil_Out32(UINTPTR Addr, u32 Value)
 {
 #ifndef ENABLE_SAFETY
-	volatile u32 *LocalAddr = (volatile u32 *)Addr;
+	volatile u32  __iomem  *LocalAddr = (volatile u32 *)Addr;
 	//*LocalAddr = Value;
 	iowrite32(Value,LocalAddr);
 #else
@@ -262,7 +262,7 @@ static INLINE void Xil_Out32(UINTPTR Addr, u32 Value)
 ******************************************************************************/
 static INLINE void Xil_Out64(UINTPTR Addr, u64 Value)
 {
-	volatile u64 *LocalAddr = (volatile u64 *)Addr;
+	volatile u64  __iomem  *LocalAddr = (volatile u64 *)Addr;
 	//*LocalAddr = Value;
 	iowrite64(Value,LocalAddr);
 }
