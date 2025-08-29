@@ -11,10 +11,14 @@
 
 #include "xuart_cdev.h"
 #include "xuartns550.h" // 假设已经包含了这个头文件
+#include "xuartns550_i.h" 
+
 #include "xparameters.h"
 //#include <linux/stdio.h>
 #include "xil_printf.h"
 #include "xuartns550_l.h"
+#include "xuart_ioctl.h" 
+
 #define UART_DEVICE_ID XPAR_UARTNS550_0_DEVICE_ID
 #define UART_DEVICE_NAME "AXIUart"
 static volatile int TotalErrorCount;
@@ -154,9 +158,9 @@ static ssize_t AXIUart_write(struct file *filp, const char __user *buf, size_t c
             return -EAGAIN; // 非阻塞模式下无数据则返回错误
         } 
 		
-		// wait_event_interruptible会检查这个条件。等待队列,如果缓冲区为空（CIRC_CNT 为0）进程就会进入睡眠状态;					等待中断处理程序写入新数据并唤醒它。
+		// wait_event_interruptible会检查这个条件。等待队列,如果缓冲区为空（CIRC_CNT CIRC_SPACE 为0）进程就会进入睡眠状态;					等待中断处理程序写入新数据并唤醒它。
         if (wait_event_interruptible(dev->tx_wait_queue,
-           CIRC_CNT(dev->tx_head, dev->tx_tail, UART_BUFFER_SIZE)) > 0) {
+           CIRC_SPACE(dev->tx_head, dev->tx_tail, UART_BUFFER_SIZE)) >= count) {
 		   pr_info("AXIUart_write wait_event_interruptible INT error \n");
            return -ERESTARTSYS; // 被信号打断
         }
@@ -215,12 +219,81 @@ static ssize_t AXIUart_write(struct file *filp, const char __user *buf, size_t c
     return written;
 }
 
+/*
+ * @name: AXIUart_ioctl
+ * @description: IOCTL handler for configuring the UART device.
+ * @param: filp - file pointer
+ * @param: cmd - ioctl command
+ * @param: arg - argument for the command
+ * @return: 0 on success, negative error code on failure
+ */
+static long AXIUart_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
+    struct uart_dev *dev = (struct uart_dev *)filp->private_data;
+    long ret = 0;
+    unsigned long baud_rate;
+	XUartNs550Format data_format;
+	/*
+	typedef struct {
+		u32 BaudRate;	//< In bps, ie 1200
+		u32 DataBits;	//< Number of data bits
+		u32 Parity;		//< Parity
+		u8 StopBits;	//< Number of stop bits
+	} XUartNs550Format;
+	*/
+
+    switch (cmd) {
+        case UART_SET_BAUD_RATE:
+            baud_rate = (unsigned long)arg;
+			//XUartNs550_SetBaud
+            if (XUartNs550_SetBaudRate(dev->uart_instance,  baud_rate) != XST_SUCCESS) {
+                printk(KERN_ERR "AXIUart_ioctl: Failed to set baud rate to %lu\n", baud_rate);
+                ret = -EINVAL;
+            } else {
+                printk(KERN_INFO "AXIUart_ioctl: Baud rate set to %lu\n", baud_rate);
+                ret = 0;
+            }
+            break;
+        
+        case UART_SET_DATA_FORMAT:
+            if (copy_from_user(&data_format, (XUartNs550Format __user *)arg, sizeof(XUartNs550Format))) {
+                ret = -EFAULT;
+                break;
+            }
+            // XUartNs550_SetDataFormat expects a single unsigned int representing the format.
+            if (XUartNs550_SetDataFormat(dev->uart_instance, &data_format) != XST_SUCCESS) {
+                printk(KERN_ERR "AXIUart_ioctl: Failed to set data format\n");
+                ret = -EINVAL;
+            } else {
+                printk(KERN_INFO "AXIUart_ioctl: Data format\n");
+                ret = 0;
+            }
+            break;
+
+        case UART_GET_DATA_FORMAT:
+            XUartNs550_GetDataFormat(dev->uart_instance,&data_format);
+            if (copy_to_user((XUartNs550Format __user *)arg, &data_format, sizeof(XUartNs550Format))) {
+                ret = -EFAULT;
+                break;
+            }
+            printk(KERN_INFO "AXIUart_ioctl: Retrieved data format\n");
+            ret = 0;
+            break;
+            
+        default:
+            ret = -ENOTTY; // Inappropriate ioctl for device
+            break;
+    }
+
+    return ret;
+}
+
 static struct file_operations AXIUart_fops = {
     .owner = THIS_MODULE,
     .open = AXIUart_open,
     .release = AXIUart_release,
     .read = AXIUart_read,
     .write = AXIUart_write,
+	.unlocked_ioctl = AXIUart_ioctl, // Add ioctl operation
 };
 
 // ==========================================================
@@ -284,7 +357,7 @@ void XUartNs550_IntHandler(void *CallBackRef, u32 Event, unsigned int EventData)
 	 * All of the data has been received.
 	 */
 	if (Event == XUN_EVENT_RECV_DATA) {
-		TotalReceivedCount = EventData;
+		TotalReceivedCount  +=  EventData;
 		// 在访问共享缓冲区之前加锁
         
 		// 判断接收器和/或 FIFO 中是否有接收数据，如果有则循环读取所有可用字节直到没有
@@ -340,8 +413,9 @@ void XUartNs550_IntHandler(void *CallBackRef, u32 Event, unsigned int EventData)
 	 * what kind of errors occurred.
 	 */
 	if (Event == XUN_EVENT_RECV_ERROR) {
-		TotalReceivedCount = EventData;
+		TotalReceivedCount  += EventData;
 		TotalErrorCount++;
+		printk(KERN_WARNING "AXIUart: Received Data with error\n");
 		Errors = XUartNs550_GetLastErrors(dev->uart_instance);
 	}
 
@@ -439,6 +513,3 @@ void  AXIUart_cdev_exit(void) {
     // xdma_user_isr_unregister(xpdev->pdev, 0);
 	*/
 }
-
-//module_init(AXIUart_init);
-//module_exit(AXIUart_exit);
