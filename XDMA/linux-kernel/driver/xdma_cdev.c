@@ -725,6 +725,8 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev)
 	int rv = 0;
 
 	/* initialize control character device */
+	
+
 	rv = create_xcdev(xpdev, &xpdev->ctrl_cdev, xdev->config_bar_idx,
 			NULL, CHAR_CTRL);
 	if (rv < 0) {
@@ -733,7 +735,10 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev)
 	}
 	xpdev_flag_set(xpdev, XDF_CDEV_CTRL);
 
+	
 	/* initialize events character device */
+	
+	/*
 	for (i = 0; i < xpdev->user_max; i++) {
 		rv = create_xcdev(xpdev, &xpdev->events_cdev[i], i, NULL,
 			CHAR_EVENTS);
@@ -743,6 +748,7 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev)
 		}
 	}
 	xpdev_flag_set(xpdev, XDF_CDEV_EVENT);
+	*/
 
 	/* iterate over channels */
 	for (i = 0; i < xpdev->h2c_channel_max; i++) {
@@ -775,6 +781,8 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev)
 	xpdev_flag_set(xpdev, XDF_CDEV_SG);
 
 	/* Initialize Bypass Character Device */
+	/*
+
 	if (xdev->bypass_bar_idx > 0) {
 		for (i = 0; i < xpdev->h2c_channel_max; i++) {
 			engine = &xdev->engine_h2c[i];
@@ -815,6 +823,7 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev)
 		xpdev_flag_set(xpdev, XDF_CDEV_BYPASS);
 	}
 
+	*/
 	/* initialize user character device */
 	if (xdev->user_bar_idx >= 0) {
 		

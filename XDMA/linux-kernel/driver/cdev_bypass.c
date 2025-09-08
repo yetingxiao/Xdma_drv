@@ -152,7 +152,8 @@ static ssize_t char_bypass_write(struct file *file, const char __user *buf,
 
 	spin_lock(&engine->lock);
 
-	/* Write descriptor data to the bypass BAR */
+	/* Write descriptor data to the bypass BAR 
+	将描述符数据写入旁路BAR*/
 	bypass_addr = xdev->bar[xdev->bypass_bar_idx];
 	bypass_addr = (void __iomem *)(
 			(u32 __iomem *)bypass_addr + engine->bypass_offset

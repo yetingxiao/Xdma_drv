@@ -429,7 +429,8 @@ int  AXIUart_cdev_init(void) {
     int result;
 	u16 Options = 0;
     XUartNs550_Config *ConfigPtr;
-
+    char AXIuart_instance_device_name[32];
+    
 
     printk(KERN_INFO "AXIUart: Initializing driver module\n");
 
@@ -442,12 +443,13 @@ int  AXIUart_cdev_init(void) {
     init_waitqueue_head(&(AXIUart_dev.rx_wait_queue));
     init_waitqueue_head(&(AXIUart_dev.tx_wait_queue));
     
-    // 2. 注册字符设备
-    result = alloc_chrdev_region(&AXIUart_dev.dev_num, 0, 1, UART_DEVICE_NAME);
+    // 2. 注册字符设备 动态分配主设备号，并保留 NUM_UART_DEVICES=16 个次设备号
+    result = alloc_chrdev_region(&AXIUart_dev.dev_num, 0, 16, UART_DEVICE_NAME);
     if (result < 0) {
         printk(KERN_WARNING "AXIUart: Failed to allocate device number\n");
         return result;
     }
+    // 初始化并添加字符设备
     cdev_init(&AXIUart_dev.cdev, &AXIUart_fops);
     AXIUart_dev.cdev.owner = THIS_MODULE;
     result = cdev_add(&AXIUart_dev.cdev, AXIUart_dev.dev_num, 1);
@@ -458,6 +460,8 @@ int  AXIUart_cdev_init(void) {
     }
     printk(KERN_INFO "AXIUart: Device registered with major %d, minor %d\n", MAJOR(AXIUart_dev.dev_num), MINOR(AXIUart_dev.dev_num));
 	
+    //sprintf(AXIuart_instance_device_name, "%s_%d", UART_DEVICE_NAME, instance);
+    //设备类已创建，用于创建设备节点
 	if (es_cdevPtr->cdev_class) {
 		device_create(es_cdevPtr->cdev_class, NULL, AXIUart_dev.dev_num, NULL, UART_DEVICE_NAME);
 	}else{
@@ -483,7 +487,8 @@ int  AXIUart_cdev_init(void) {
     XUartNs550_SetHandler(AXIUart_dev.uart_instance, XUartNs550_IntHandler,&AXIUart_dev);
 	Options = XUN_OPTION_FIFOS_ENABLE;//XUN_OPTION_DATA_INTR |
 	XUartNs550_SetOptions(AXIUart_dev.uart_instance, Options); 
-	
+
+	//instance++;
 
     printk(KERN_INFO "AXIUart: Driver loaded successfully\n");
     return 0;
@@ -501,6 +506,8 @@ cleanup_cdev:
 
 void  AXIUart_cdev_exit(void) {
 	u16 Options = 0;
+    // ... 1. 注销中断
+    //xdma_user_isr_unregister(xpdev->pdev, 0);
 	printk(KERN_INFO "AXIUart: Exiting driver module\n");
 
 	device_destroy(es_cdevPtr->cdev_class, AXIUart_dev.dev_num);
@@ -508,8 +515,5 @@ void  AXIUart_cdev_exit(void) {
     cdev_del(&AXIUart_dev.cdev);//从内核中删除 cdev 结构体，解除内核与驱动程序的关联。
     unregister_chrdev_region(AXIUart_dev.dev_num, 1);
 	
-/* 	
-	// ... 1. 注销中断
-    // xdma_user_isr_unregister(xpdev->pdev, 0);
-	*/
+
 }

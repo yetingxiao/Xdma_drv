@@ -82,7 +82,9 @@ static ssize_t char_ctrl_write(struct file *file, const char __user *buf,
 	if (*pos & 3)
 		return -EPROTO;
 
-	/* first address is BAR base plus file position offset */
+	/* first address is BAR base plus file position offset 
+	BAR 基址加上文件位置偏移量
+	*/
 	reg = xdev->bar[xcdev->bar] + *pos;
 	rv = copy_from_user(&w, buf, 4);
 	if (rv)
@@ -205,7 +207,10 @@ int bridge_mmap(struct file *file, struct vm_area_struct *vma)
 	xdev = xcdev->xdev;
 
 	off = vma->vm_pgoff << PAGE_SHIFT;
-	/* BAR physical address */
+	/* BAR physical address 
+	pci_resource_start 和 pci_resource_end 是 PCI 设备驱动程序中非常重要的两个函数
+	它们用来获取特定 基地址寄存器 (BAR) 的物理起始和结束地址。这些地址对于驱动程序访问设备的内存映射 I/O (MMIO) 区域或 I/O 端口至关重要。
+	*/
 	phys = pci_resource_start(xdev->pdev, xcdev->bar) + off;
 	vsize = vma->vm_end - vma->vm_start;
 	/* complete resource */
@@ -244,7 +249,20 @@ int bridge_mmap(struct file *file, struct vm_area_struct *vma)
 #else
 	vma->vm_flags |= VMEM_FLAGS;
 #endif
-	/* make MMIO accessible to user space */
+	/* make MMIO accessible to user space 
+	io_remap_pfn_range 是一个 Linux 内核函数，用于将物理内存区域映射到进程的用户空间虚拟内存。这通常用于让用户空间的应用程序可以直接访问内存映射 I/O (MMIO) 的硬件寄存器或设备内存。
+	int io_remap_pfn_range(struct vm_area_struct *vma,
+                       unsigned long addr,
+                       unsigned long pfn,
+                       unsigned long size,
+                       pgprot_t prot);
+
+vma: 指向 vm_area_struct 的指针，该结构描述了将要被映射的虚拟内存区域。它包含了用户空间虚拟地址范围的信息。
+addr: 用户空间中映射的起始虚拟地址。
+pfn: 物理页帧号（Physical Page Frame Number）。这是将要被映射的起始物理地址（以页为单位，而不是字节）。它通常是通过将物理地址右移 PAGE_SHIFT 位来得到的。
+size: 要映射的内存区域的大小，单位是字节。
+prot: 页保护标志，用于定义映射内存的权限（例如，读、写、可执行、可缓存性等）。
+	*/
 	rv = io_remap_pfn_range(vma, vma->vm_start, phys >> PAGE_SHIFT,
 			vsize, vma->vm_page_prot);
 	dbg_sg("vma=0x%p, vma->vm_start=0x%lx, phys=0x%lx, size=%lu = %d\n",

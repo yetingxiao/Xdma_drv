@@ -578,7 +578,7 @@ struct xdma_transfer {
 /*代表了一个DMA请求，并且封装了用于驱动硬件DMA引擎的底层细节，包括scatter-gather (SG) 列表的处理和DMA 描述符的准备,将sgt转换为一系列软件描述符*/
 struct xdma_request_cb {
 	struct sg_table *sgt;
-	u64 ep_addr;
+	u64 ep_addr;//AXI FPGA通信地址
 	unsigned int aperture;
 
 	unsigned int total_len;
@@ -658,9 +658,13 @@ struct xdma_engine {
 	int msix_irq_line;		/* MSI-X vector for this engine */
 	u32 irq_bitmask;		/* IRQ bit mask for this engine */
 	struct work_struct work;	/* Work queue for interrupt handling */
-
+/*处理函数需要访问特定的数据（例如，xdma_engine 结构体），你可以将 work_struct 嵌入到你的数据结构中。*/
 	struct mutex desc_lock;		/* protects concurrent access */
+	/*描述符的总线地址（或 DMA 地址），这是 PCIe 总线可以识别的物理地址，也是 DMA 引擎实际读取描述符的地址。*/
 	dma_addr_t desc_bus;
+	/*描述符的虚拟地址，内核驱动程序通过这个指针来访问和填充描述符。这块内存通常被设计成一个环形缓冲区（Ring Buffer）
+	驱动程序和硬件 DMA 引擎通过一个读指针和写指针来管理它，实现高效的生产者-消费者模型。
+	环形缓冲区设计主要体现在 驱动程序管理描述符索引的逻辑中*/
 	struct xdma_desc *desc;
 	int desc_idx;			/* current descriptor index */
 	int desc_used;			/* total descriptors used */

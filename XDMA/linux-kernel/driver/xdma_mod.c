@@ -54,7 +54,7 @@ MODULE_PARM_DESC(vi53xx_debug, "Activate debugging for vi53xx module (default:0=
 static char version[] =
 	DRV_MODULE_DESC " " DRV_MODULE_NAME " v" DRV_MODULE_VERSION "\n";
 
-MODULE_AUTHOR("Xilinx, Inc.");
+MODULE_AUTHOR("Vehinfo, Inc.");
 MODULE_DESCRIPTION(DRV_MODULE_DESC);
 MODULE_VERSION(DRV_MODULE_VERSION);
 MODULE_LICENSE("Dual BSD/GPL");
@@ -76,7 +76,7 @@ static void vi53xx_unlock(void)
 //======================================add by ycf 2025.8.12=============================================
 
 void *xdma_device_map(const char *mname, struct pci_dev *pdev)
-{//ÀàËÆ¹¦ÄÜvoid *xdma_device_open(const char *mname, struct pci_dev *pdev, int *user_max,int *h2c_channel_max, int *c2h_channel_max)
+{//ï¿½ï¿½ï¿½Æ¹ï¿½ï¿½ï¿½void *xdma_device_open(const char *mname, struct pci_dev *pdev, int *user_max,int *h2c_channel_max, int *c2h_channel_max)
 	struct xdma_dev *xdev = NULL;
 	int rv = 0;
 
@@ -127,7 +127,7 @@ free_xdev:
 }
 
 void xdma_device_umap(struct pci_dev *pdev, void *dev_xdev)
-{//¹¦ÄÜÀàËÆvoid xdma_device_close(struct pci_dev *pdev, void *dev_hndl)
+{//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½void xdma_device_close(struct pci_dev *pdev, void *dev_hndl)
 	struct xdma_dev *xdev = (struct xdma_dev *)dev_xdev;
 
 	dbg_init("pdev 0x%p, xdev 0x%p.\n", pdev, dev_xdev);
@@ -204,10 +204,10 @@ static void dump_vi53xx_device_info(struct pci_dev *pdev)
 static int xpdev_cnt;
 //
 struct pci_device_id pci_ids[] = {
-	//vender/device idÈ·ÈÏÊ¹ÓÃxilinx 0x10ee, 0x16f2 ,0x16f2 es5311  »òÕßPCI_DEVICE(RTPC_XDMA_VID, RTPC_XDMA_DID)
-    { PCI_DEVICE(0x10ee, 0x16f2),.driver_data = (kernel_ulong_t) &vi53xx_info },
-	//vender/device idÈ·ÈÏÊ¹ÓÃxilinx 0x10ee, 0x16f3 ,0x16f3 es5341
-	{ PCI_DEVICE(0x10ee, 0x16f3), },
+	//vender/device idÈ·ï¿½ï¿½Ê¹ï¿½ï¿½xilinx 0x10ee, 0x16f2 ,0x16f2 es5341  ï¿½ï¿½ï¿½ï¿½PCI_DEVICE(RTPC_XDMA_VID, RTPC_XDMA_DID)
+    { PCI_DEVICE(0x10ee, 0x16f2),.driver_data = (kernel_ulong_t) &vi53xx_info},
+	//vender/device idÈ·ï¿½ï¿½Ê¹ï¿½ï¿½xilinx 0x10ee, 0x16f3 ,0x16f3 es5311
+	{ PCI_DEVICE(0x10ee, 0x16f3),.driver_data = (kernel_ulong_t) &vi53xx_info},
 	{ PCI_DEVICE(0x10ee, 0x9048), },
 	{ PCI_DEVICE(0x10ee, 0x9044), },
 	{ PCI_DEVICE(0x10ee, 0x9042), },
@@ -327,8 +327,8 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 
 //======================================add by ycf 2025.8.13=============================================
     struct pci_info *vi53xx_xdma_info = (struct pci_info *)(id->driver_data);
-    dump_vi53xx_device_info(pdev);//pdev->device 0x16f2Çø·Ö°å¿¨
-	//xdev = xdma_device_map(DRV_MODULE_NAME, pdev);¹¦ÄÜµÈÍ¬xdma_device_open
+    dump_vi53xx_device_info(pdev);//pdev->device 0x16f2ï¿½ï¿½ï¿½Ö°å¿¨
+	//xdev = xdma_device_map(DRV_MODULE_NAME, pdev);ï¿½ï¿½ï¿½Üµï¿½Í¬xdma_device_open
 //======================================add by ycf 2025.8.13=============================================
 	hndl = xdma_device_open(DRV_MODULE_NAME, pdev, &xpdev->user_max,&xpdev->h2c_channel_max, &xpdev->c2h_channel_max);
 	//hndl->fops = &rtpc_xdma_fops;
@@ -424,26 +424,28 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		 * return < 0 in case of error
 		 * TODO: exact error code will be defined later
 		 */
-		printk(KERN_INFO "register user interrupt \n");	
-		if (&UartNs550Instance == NULL) {
-			pr_err("Failed to allocate memory for UartInstancePtr\n");
-			return -ENOMEM;
+		if(0x16f3==pdev->device){//0x16f3==pdev->device ä»£è¡¨es5311æ¿å¡
+			pr_info("BAR%d mapped at 0x%p\n", 0,xdev->bar[0]);
+			UART_KERNEL_REGS=xdev->bar[0];
+			IS_KERNEL_MAPPED=1;
+			//======================================add by ycf 2025.8.7=============================================	
+			printk(KERN_INFO "AXIUart: Before Cdev Initializing\n");	
+			AXIUart_cdev_init();
+			//======================================add by ycf 2025.8.7=============================================
+			printk(KERN_INFO "register user interrupt \n");	
+			if (&UartNs550Instance == NULL) {
+				pr_err("Failed to allocate memory for UartInstancePtr\n");
+				return -ENOMEM;
+			}
+			/* ä½¿ç”¨ç”¨æˆ·ä¸­æ–­ï¼Œxdmaæœ‰å¤šä¸ªä¸­æ–­ï¼Œéœ€è¦MSIXä¸­æ–­æ”¯æŒï¼Œæ‰èƒ½å’ŒAXI DMAä¸­æ–­ä¸€èµ·æ­£å¸¸å·¥ä½œ*/
+			ret=xdma_user_isr_register(xpdev->xdev,1<<0,(irq_handler_t)XUartNs550_KernelIntHandlerEntry,&UartNs550Instance);
+			if (ret < 0) {
+				pr_err("Failed to register XDMA user ISR\n");
+				return ret;
+			}
 		}
-		ret=xdma_user_isr_register(xpdev->xdev,1<<0,(irq_handler_t)XUartNs550_KernelIntHandlerEntry,&UartNs550Instance);
-		if (ret < 0) {
-			pr_err("Failed to register XDMA user ISR\n");
-			return ret;
-		}
-		pr_info("BAR%d mapped at 0x%p\n", 0,xdev->bar[0]);
-		UART_KERNEL_REGS=xdev->bar[0];
-		IS_KERNEL_MAPPED=1;
-//======================================add by ycf 2025.8.7=============================================	
-		printk(KERN_INFO "AXIUart: Before Cdev Initializing\n");	
-		AXIUart_cdev_init();
-//======================================add by ycf 2025.8.7=============================================
 		//======================================add by ycf 2025.8.4=============================================
 	}
-	
 	
 	
 //======================================add by ycf 2025.7.27=============================================
@@ -451,7 +453,7 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	list_add(&xpdev->list, &pcie_device_list);
 	vi53xx_unlock();
 //======================================add by ycf 2025.7.27=============================================	
-
+	//xdma_device_online(pdev, xpdev->xdev);
 
 
 	return 0;
@@ -473,7 +475,7 @@ static void remove_one(struct pci_dev *pdev)
 	if (!xpdev)
 		return;
 //======================================add by ycf 2025.8.13=============================================
-	//vi53xx_dev_clean(xpdev);	//²»±ØÒªxpdev_free(xpdev);ÖÐÖ´ÐÐxpdev_destroy_interfaces(xpdev); ÖÐ»áÖ´ÐÐvi53xx_dev_clean(xpdev)
+	//vi53xx_dev_clean(xpdev);	//ï¿½ï¿½ï¿½ï¿½Òªxpdev_free(xpdev);ï¿½ï¿½Ö´ï¿½ï¿½xpdev_destroy_interfaces(xpdev); ï¿½Ð»ï¿½Ö´ï¿½ï¿½vi53xx_dev_clean(xpdev)
 	xdma_free_resource(xpdev->pdev, xpdev->xdev);
 //======================================add by ycf 2025.8.13=============================================
 	pr_info("pdev 0x%p, xdev 0x%p, 0x%p.\n",

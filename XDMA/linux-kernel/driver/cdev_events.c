@@ -51,6 +51,14 @@ static ssize_t char_events_read(struct file *file, char __user *buf,
 	/*
 	 * sleep until any interrupt events have occurred,
 	 * or a signal arrived
+	 * 
+	 * 	wait_event_interruptible(wait_queue_head_t wq, condition)
+		wq: 一个等待队列头（wait_queue_head_t），用于管理所有等待特定事件发生的进程。
+		condition: 一个布尔表达式。如果表达式为假，进程会继续休眠；如果为真，进程将返回。这个表达式会在进程被唤醒时进行重新评估。
+
+		宏的作用是使当前进程在等待队列上休眠，从而释放 CPU 资源。它会持续休眠，直到：
+		1、条件满足：第二个参数中的表达式评估结果为真（非零）。2、信号到达：进程收到一个中断信号（如 SIGINT 或 SIGTERM）。
+		如果进程被信号唤醒，wait_event_interruptible 会返回 -ERESTARTSYS。如果条件满足而被唤醒，则返回 0。
 	 */
 	rv = wait_event_interruptible(user_irq->events_wq,
 			user_irq->events_irq != 0);
@@ -90,7 +98,17 @@ static unsigned int char_events_poll(struct file *file, poll_table *wait)
 		pr_info("xcdev 0x%p, user_irq NULL.\n", xcdev);
 		return -EINVAL;
 	}
+/*
+poll_wait(file, &user_irq->events_wq, wait),用于将当前进程加入到一个等待队列。
 
+file: 用户空间文件句柄，通常是设备文件的文件结构体。
+
+&user_irq->events_wq: 这是一个 等待队列头 (wait_queue_head_t)。当驱动程序检测到事件发生时，会调用 wake_up_interruptible() 或类似函数来唤醒所有在这个队列上等待的进程。
+
+wait: poll_table 结构体，poll_wait 会将当前进程的等待信息添加到这个表中。
+
+作用: 这行代码的目的是让用户进程进入睡眠状态，直到驱动程序在中断处理程序中通过 wake_up_interruptible 唤醒它。这是一种高效的等待方式，避免了 CPU 占用
+*/
 	poll_wait(file, &user_irq->events_wq,  wait);
 
 	spin_lock_irqsave(&user_irq->events_lock, flags);

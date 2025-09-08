@@ -325,7 +325,11 @@ void xdma_free_resource(struct pci_dev *pdev, void *dev_xdev)
     xdma_free_desc(xdev, pdev);
 }
 //============================================vi53xx mod lib==============================================
-
+/*
+/dev/xdma0_h2c_0：用于 write() 操作，执行 主机到卡 的 DMA 传输，并由驱动根据内部配置决定 AXI 目标地址。
+/dev/xdma0_c2h_0：用于 read() 操作，执行 卡到主机 的 DMA 传输，并由驱动根据内部配置决定 AXI 源地址。
+驱动源码中修改硬编码的地址
+*/
 struct xdma_channel_addr ch_addr[2][XDMA_CHANNEL_NUM + 1] = {
      [H2C_DIR][CH1] = {XDMA_H2C0_STARTADDR, CH1_H2C0},
      [C2H_DIR][CH1] = {XDMA_C2H0_STARTADDR, CH1_C2H0},
@@ -344,6 +348,13 @@ static int xdma_physical_address_init(struct pci_dev *pdev, struct xdma_cfg_info
     void *ptr;
 
 	for(i = 0; i < pDma_cfg->SG_desc_num; i++ ) {
+		/*
+		返回两种地址：
+		CPU 虚拟地址 (ptr)：
+			供内核驱动程序（CPU）读写数据。驱动程序会使用这个指针来填充或读取数据。
+		DMA 物理地址 (pDma_cfg->data_phy_addr[i])：
+			供 DMA 控制器（设备）访问内存,会被驱动用来构建 DMA 描述符，告诉 XDMA 硬件从哪里（H2C）或往哪里（C2H）传输数据。这个地址通常被称为 总线地址 (Bus Address)，与 CPU 看到的物理地址有所不同。
+		*/
 		ptr = dma_alloc_coherent(&pdev->dev, pDma_cfg->size, &pDma_cfg->data_phy_addr[i], GFP_KERNEL);
 		if (!ptr){
 			printk("System Error: DMA Memory Allocate.\n");
@@ -632,17 +643,34 @@ int xdma_mmap(struct xdma_dev *xdev, void *vm, struct xdma_cfg_info *cfg)
 		xpdev->fmap[cfg->direction][cfg->channel] = 1;
 		dev_set_drvdata(&pdev->dev, xpdev);
 	}
+/*
+将PCI 设备驱动已经分配好的 DMA 缓冲区映射到用户空间的虚拟内存区域 vma。
 
+pdev->dev：代表了 PCI 设备。
+
+vma：是用户程序请求的虚拟内存区域。
+
+cfg->pData[0]：是 DMA 缓冲区的 CPU 虚拟地址。
+
+cfg->data_phy_addr[0]：是 DMA 缓冲区的 DMA 物理地址。
+
+vma->vm_end - vma->vm_start：是用户请求映射的区域大小。
+
+目的是让用户程序可以直接访问由 cfg->pData[0] 和 cfg->data_phy_addr[0] 指向的 DMA 缓冲区。
+*/
 	return dma_common_mmap(&pdev->dev, vma, cfg->pData[0], cfg->data_phy_addr[0], vma->vm_end - vma->vm_start);
 }
 struct xdma_fops rtpc_xdma_fops = {
 	.read_reg = read_reg,
 	.write_reg = write_reg,
-	.start = xdma_start,
+//vi53xx_xdma_start
 	.start_desc = xdma_start_desc,
-	.stop = xdma_stop,
+	.start = xdma_start,
+//_xdma_channel_init	
 	.poll_init = xdma_poll_init,
+	.stop = xdma_stop,
 	.create_transfer = xdma_create_transfer,
+//_xdma_mmap
 	.xdma_mmap = xdma_mmap,
 };
 
@@ -1070,6 +1098,8 @@ static int engine_start_mode_config(struct xdma_engine *engine)
 /**
  * xdma_get_next_adj()
  *
+ * 根据剩余描述符数量和下一个描述符地址的低位，获取要在描述符中设置的相邻描述符数量。
+ * 由于每页中的描述符数量 (XDMA_PAGE_SIZE) 为 128，而相邻描述符块的最大大小为 64（任何描述符的最大相邻描述符数量为 63 个），因此请将相邻描述符块与块大小对齐。
  * Get the number for adjacent descriptors to set in a descriptor, based on the
  * remaining number of descriptors and the lower bits of the address of the
  * next descriptor.
@@ -1097,6 +1127,13 @@ static u32 xdma_get_next_adj(unsigned int remaining, u32 next_lo)
 }
 
 /**
+ *  engine_start() - 启动一个空闲的引擎，并将其第一个传输放入队列。
+* 引擎将运行并处理所有使用 transfer_queue() 排队的传输，这些传输的描述符列表已链接。
+* 在运行期间，如果 transfer_queue() 在硬件获取最后一个描述符之前已链接描述符，则将处理新的传输。
+* 链接过晚的传输将调用引擎的新运行，该运行由 engine_service() 例程启动。
+
+* 引擎必须处于空闲状态，并且至少有一个传输已放入队列。
+* 此函数不占用锁；引擎自旋锁必须已占用。
  * engine_start() - start an idle engine with its first transfer on queue
  *
  * The engine will run and process all transfers that are queued using
@@ -1232,7 +1269,9 @@ static int engine_service_shutdown(struct xdma_engine *engine)
 	xlx_wake_up(&engine->shutdown_wq);
 	return 0;
 }
-
+/*
+处理DMA传输完成（包括唤醒等待任务和调用完成回调函数）
+*/
 static struct xdma_transfer *engine_transfer_completion(
 		struct xdma_engine *engine,
 		struct xdma_transfer *transfer)
@@ -1251,13 +1290,17 @@ static struct xdma_transfer *engine_transfer_completion(
 	/* awake task on transfer's wait queue */
 	xlx_wake_up(&transfer->wq);
 
-	/* Send completion notification for Last transfer */
+	/* Send completion notification for Last transfer 
+	发送上次传输的完成通知
+	*/
 	if (transfer->cb && transfer->last_in_request)
 		transfer->cb->io_done((unsigned long)transfer->cb, 0);
 
 	return transfer;
 }
-
+/*
+遍历并处理已完成的传输列表
+*/
 static struct xdma_transfer *
 engine_service_transfer_list(struct xdma_engine *engine,
 			     struct xdma_transfer *transfer,
@@ -1279,7 +1322,7 @@ engine_service_transfer_list(struct xdma_engine *engine,
 		return NULL;
 	}
 
-	/*
+	/** 遍历引擎完成的所有传输，除了最后一个
 	 * iterate over all the transfers completed by the engine,
 	 * except for the last (i.e. use > instead of >=).
 	 */
@@ -1316,13 +1359,16 @@ engine_service_transfer_list(struct xdma_engine *engine,
 
 	return transfer;
 }
-
+/*
+负责处理 DMA 引擎报告的错误
+*/
 static int engine_err_handle(struct xdma_engine *engine,
 			     struct xdma_transfer *transfer, u32 desc_completed)
 {
 	u32 value;
 	int rv = 0;
-	/*
+	/** BUSY 位现在应该被清除了，但旧版硬件存在竞争条件，可能导致该位仍然被置位。
+	 * 如果该位被置位，请重新读取并再次检查。如果该位仍然被置位，请记录该问题。
 	 * The BUSY bit is expected to be clear now but older HW has a race
 	 * condition which could cause it to be still set.  If it's set, re-read
 	 * and check again.  If it's still set, log the issue.
@@ -1346,12 +1392,13 @@ static int engine_err_handle(struct xdma_engine *engine,
 		pr_err("Failed to stop engine\n");
 	return rv;
 }
-
+/*流式传输的结束标志 (EOP)*/
 static struct xdma_transfer *
 engine_service_final_transfer(struct xdma_engine *engine,
 			      struct xdma_transfer *transfer,
 			      u32 *pdesc_completed)
 {
+	dbg_tfr("engine_service_final_transfer\n");
 	if (!engine) {
 		pr_err("dma engine NULL\n");
 		return NULL;
@@ -1521,7 +1568,9 @@ static int engine_service_resume(struct xdma_engine *engine)
 	return 0;
 }
 
-/**
+/*下半部的核心。
+*将 DMA 完成的原始事件从硬件层面，转换为一系列驱动程序层面的操作：更新状态、处理传输、并为引擎准备下一个任务。
+ * 它处理 DMA 引擎的状态机，处理已完成的传输，并执行必要的清理工作。函数的逻辑取决于它是由 ISR 还是由轮询机制调用的。
  * engine_service() - service an SG DMA engine
  *
  * must be called with engine->lock already acquired
@@ -1531,11 +1580,13 @@ static int engine_service_resume(struct xdma_engine *engine)
  */
 static int engine_service(struct xdma_engine *engine, int desc_writeback)
 {
+	dbg_irq("engine_service\n");
 	struct xdma_transfer *transfer = NULL;
 	u32 desc_count = desc_writeback & WB_COUNT_MASK;
 	u32 err_flag = desc_writeback & WB_ERR_MASK;
 	int rv = 0;
-
+/*1、初始状态与错误检查
+它首先验证 engine 指针的有效性，并检查引擎是否正在运行。如果不是，它会读取并清除引擎的状态寄存器然后返回，因为没有传输需要处理。*/
 	if (!engine) {
 		pr_err("dma engine NULL\n");
 		return -EINVAL;
@@ -1551,34 +1602,53 @@ static int engine_service(struct xdma_engine *engine, int desc_writeback)
 		}
 		return 0;
 	}
+/*
+2、读取状态寄存器
 
+如果函数是从 ISR 调用的（desc_count == 0），或者检测到错误（err_flag != 0）.
+它会读取并清除引擎的状态寄存器。这是检查任何硬件错误和确认中断源的关键步骤。
+如果 DMA 传输成功完成（没有错误标志），并且提供了 desc_count（这在轮询模式下发生），为了减少延迟，该步骤会被跳过。
+*/
 	/*
 	 * If called by the ISR or polling detected an error, read and clear
 	 * engine status. For polled mode descriptor completion, this read is
 	 * unnecessary and is skipped to reduce latency
 	 */
 	if ((desc_count == 0) || (err_flag != 0)) {
-		rv = engine_status_read(engine, 1, 0);
+		rv = engine_status_read(engine, 1, 0);//它会读取并清除引擎的状态寄存器
 		if (rv < 0) {
 			pr_err("Failed to read engine status\n");
 			return rv;
 		}
 	}
+/*
+3、引擎关闭
 
+它检查引擎是否已停止运行（!(engine->status & XDMA_STAT_BUSY)），或者在非流模式下是否已完成传输（desc_count != 0）。
+如果任一条件为真，它会调用 engine_service_shutdown，该函数会停止硬件并唤醒任何正在等待关闭队列的线程。*/
 	/*
 	 * engine was running but is no longer busy, or writeback occurred,
 	 * shut down
 	 */
 	if ((engine->running && !(engine->status & XDMA_STAT_BUSY)) ||
 	    (!engine->eop_flush && desc_count != 0)) {
-		rv = engine_service_shutdown(engine);
+		rv = engine_service_shutdown(engine);//该函数会停止硬件并唤醒任何正在等待关闭队列的线程。
 		if (rv < 0) {
 			pr_err("Failed to shutdown engine\n");
 			return rv;
 		}
 	}
+/*
+4、处理已完成的描述符，并更新相应传输的状态。
+这是驱动程序的内部状态与硬件进度同步的地方。
 
+如果调用者没有提供描述符计数，它会从硬件中读取已完成的描述符数量。
+然后它检查 engine->transfer_list，看是否有待处理的传输。
+它调用一系列辅助函数（engine_service_perf、engine_service_transfer_list、engine_service_final_transfer）来遍历已完成的描述符。
+*/
 	/*
+	* 如果从 ISR 调用，或者发生错误，描述符计数将为零。在这种情况下，请从硬件读取描述符计数
+	* 在轮询模式下，描述符完成时，此读取操作是不必要的，因此会被跳过以减少延迟
 	 * If called from the ISR, or if an error occurred, the descriptor
 	 * count will be zero.  In this scenario, read the descriptor count
 	 * from HW.  In polled mode descriptor completion, this read is
@@ -1594,7 +1664,7 @@ static int engine_service(struct xdma_engine *engine, int desc_writeback)
 		goto done;
 
 	/* transfers on queue? */
-	if (!list_empty(&engine->transfer_list)) {
+	if (!list_empty(&engine->transfer_list)) {//看是否有待处理的传输。
 		/* pick first transfer on queue (was submitted to the engine) */
 		transfer = list_entry(engine->transfer_list.next,
 				      struct xdma_transfer, entry);
@@ -1624,7 +1694,10 @@ static int engine_service(struct xdma_engine *engine, int desc_writeback)
 	 * detect faulty completion
 	 */
 	transfer = engine_service_final_transfer(engine, transfer, &desc_count);
-
+/*
+5、重启引擎
+处理完已完成的传输后，如果未设置 eop_flush 标志（意味着硬件需要明确重启），它会调用 engine_service_resume 来重启 DMA 引擎，以处理下一个排队的传输。
+*/
 	/* Restart the engine following the servicing */
 	if (!engine->eop_flush) {
 		rv = engine_service_resume(engine);
@@ -1643,7 +1716,7 @@ static void engine_service_work(struct work_struct *work)
 	struct xdma_engine *engine;
 	unsigned long flags;
 	int rv;
-
+/*处理函数会通过 container_of 宏找到其父结构体，从而获取所有所需的数据来处理 DMA 传输。*/
 	engine = container_of(work, struct xdma_engine, work);
 	if (engine->magic != MAGIC_ENGINE) {
 		pr_err("%s has invalid magic number %lx\n", engine->name,
@@ -1775,6 +1848,7 @@ int engine_service_poll(struct xdma_engine *engine,
 
 static irqreturn_t user_irq_service(int irq, struct xdma_user_irq *user_irq)
 {
+	//pr_err("user_irq_service\n");
 	unsigned long flags;
 
 	if (!user_irq) {
@@ -1783,25 +1857,36 @@ static irqreturn_t user_irq_service(int irq, struct xdma_user_irq *user_irq)
 	}
 
 	if (user_irq->handler)
-		return user_irq->handler(user_irq->user_idx, user_irq->dev);
+		return user_irq->handler(user_irq->user_idx, user_irq->dev);/*如果用户定义了中断处理函数 (user_irq->handler)，则直接调用它。*/
 
 	spin_lock_irqsave(&(user_irq->events_lock), flags);
 	if (!user_irq->events_irq) {
 		user_irq->events_irq = 1;
-		wake_up_interruptible(&(user_irq->events_wq));
+		wake_up_interruptible(&(user_irq->events_wq));/*唤醒等待的用户事件等待队列 (events_wq)*/
 	}
 	spin_unlock_irqrestore(&(user_irq->events_lock), flags);
 
 	return IRQ_HANDLED;
 }
 
-/*
+/*（非 MSI-X）中断服务例程，用于处理来自 XDMA 设备的	共享中断
  * xdma_isr() - Interrupt handler
  *
  * @dev_id pointer to xdma_dev
+ *  
+ * 上半部中断处理的第一部分，快速、简短，在中断被禁用或屏蔽的状态下运行。它只负责读取寄存器、清除中断标志，并立即将繁重的工作卸载。它的主要目标是快速执行必要任务，然后将大部分工作卸载。
+
+1、读取中断状态：函数首先读取硬件寄存器（channel_int_request 和 user_int_request），以确定是哪个 DMA 通道或用户逻辑发出了中断。
+2、禁用中断：它立即调用 channel_interrupts_disable 来禁用刚刚触发的中断。这能防止在处理中断时硬件再次发出中断，避免所谓的“中断风暴”。这些中断将在下半部工作完成后重新启用。
+3、处理用户中断：如果存在用户逻辑中断，它会调用 user_irq_service 来处理。
+4、调度下半部：这是处理 DMA 传输完成最关键的一步。对于每个发出中断的 DMA 引擎（无论是 H2C 还是 C2H），代码都会调用 schedule_work(&engine->work)。
+	这会将与该特定 DMA 引擎关联的 work_struct 结构体放入内核工作队列。内核的工作队列线程会在稍后、在一个进程上下文中执行这个工作项。
+
+5、返回 IRQ_HANDLED：函数返回 IRQ_HANDLED，通知内核它已成功处理了一个有效的中断。
  */
 static irqreturn_t xdma_isr(int irq, void *dev_id)
 {
+	//pr_info("xdma_isr\n");
 	u32 ch_irq;
 	u32 user_irq;
 	u32 mask;
@@ -1838,7 +1923,7 @@ static irqreturn_t xdma_isr(int irq, void *dev_id)
 	/* read user interrupts - this read also flushes the above write */
 	user_irq = read_register(&irq_regs->user_int_request);
 	dbg_irq("user_irq = 0x%08x\n", user_irq);
-
+	//pr_err("user_irq = 0x%08x\n", user_irq);
 	if (user_irq) {
 		int user = 0;
 		u32 mask = 1;
@@ -1847,12 +1932,14 @@ static irqreturn_t xdma_isr(int irq, void *dev_id)
 		for (; user < max && user_irq; user++, mask <<= 1) {
 			if (user_irq & mask) {
 				user_irq &= ~mask;
-				user_irq_service(irq, &xdev->user_irq[user]);
+				user_irq_service(irq, &xdev->user_irq[user]);/*遍历并服务用户中断（通过调用user_irq_service）*/
 			}
 		}
 	}
-
+	//pr_err("ch_irq = 0x%08x\n", ch_irq);
+	//pr_err("xdev->mask_irq_h2c = 0x%08x\n", xdev->mask_irq_h2c);
 	mask = ch_irq & xdev->mask_irq_h2c;
+	//pr_err("mask_irq_h2c = 0x%08x\n", mask);
 	if (mask) {
 		int channel = 0;
 		int max = xdev->h2c_channel_max;
@@ -1866,12 +1953,25 @@ static irqreturn_t xdma_isr(int irq, void *dev_id)
 			    (engine->magic == MAGIC_ENGINE)) {
 				mask &= ~engine->irq_bitmask;
 				dbg_tfr("schedule_work, %s.\n", engine->name);
+				//pr_info("schedule_work h2c\n");
+				/*下半部由内核工作队列线程执行，运行在进程上下文中。它负责处理 ISR 推迟的、耗时更长的非关键任务。
+				它运行在进程上下文中，可以安全地休眠、获取锁、调用其他内核函数。所有处理已完成传输和唤醒用户应用程序的核心逻辑都在这里完成。
+				处理已完成的描述符：它会检查 DMA 引擎的硬件状态，以确认有多少描述符已成功处理。
+				 */
 				schedule_work(&engine->work);
+				/*
+1、更新传输状态：它更新相应 xdma_transfer 结构体的状态。已完成的传输会被标记为 TRANSFER_STATE_COMPLETED。
+
+2、唤醒用户线程：这是另一个关键步骤。下半部会唤醒任何因等待 DMA 传输完成而处于阻塞状态的用户空间进程。它通过唤醒与传输关联的等待队列头 (wait_queue_head_t) 来实现。
+
+3、回收资源：它会回收已完成的 DMA 传输所占用的描述符，将它们重新放回环形缓冲区，以便未来的传输使用
+				*/
 			}
 		}
 	}
-
+	pr_err("xdev->mask_irq_c2h = 0x%08x\n", xdev->mask_irq_c2h);
 	mask = ch_irq & xdev->mask_irq_c2h;
+	pr_err("mask_irq_c2h = 0x%08x\n", mask);
 	if (mask) {
 		int channel = 0;
 		int max = xdev->c2h_channel_max;
@@ -1885,7 +1985,8 @@ static irqreturn_t xdma_isr(int irq, void *dev_id)
 			    (engine->magic == MAGIC_ENGINE)) {
 				mask &= ~engine->irq_bitmask;
 				dbg_tfr("schedule_work, %s.\n", engine->name);
-				schedule_work(&engine->work);
+				//pr_info("schedule_work c2h\n");
+				schedule_work(&engine->work);/*特定中断位被设置，则调度相应的 engine->work 工作队列（这是将中断的下半部分延迟到进程上下文执行的标准Linux内核机制）*/
 			}
 		}
 	}
@@ -1894,7 +1995,7 @@ static irqreturn_t xdma_isr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-/*
+/*MSI-X 模式下用户中断的特定中断服务例程。
  * xdma_user_irq() - Interrupt handler for user interrupts in MSI-X mode
  *
  * @dev_id pointer to xdma_dev
@@ -1911,10 +2012,10 @@ static irqreturn_t xdma_user_irq(int irq, void *dev_id)
 	}
 	user_irq = (struct xdma_user_irq *)dev_id;
 
-	return user_irq_service(irq, user_irq);
+	return user_irq_service(irq, user_irq);/*它只是简单地调用 user_irq_service 来处理用户中断*/
 }
 
-/*
+/*MSI-X 模式下通道中断的特定中断服务例程
  * xdma_channel_irq() - Interrupt handler for channel interrupts in MSI-X mode
  *
  * @dev_id pointer to xdma_dev
@@ -1952,7 +2053,7 @@ static irqreturn_t xdma_channel_irq(int irq, void *dev_id)
 	/* Dummy read to flush the above write */
 	read_register(&irq_regs->channel_int_pending);
 	/* Schedule the bottom half */
-	schedule_work(&engine->work);
+	schedule_work(&engine->work);//engine_init ->	INIT_WORK(&engine->work, engine_service_work); 	->	engine_service
 
 	/*
 	 * need to protect access here if multiple MSI-X are used for
@@ -2006,7 +2107,9 @@ static int map_single_bar(struct xdma_dev *xdev, struct pci_dev *dev, int idx)
 	}
 	/*
 	 * map the full device memory or IO region into kernel virtual
-	 * address space
+	 * address space			
+	 * 这是将 PCIe BAR 映射到内核虚拟地址空间 的关键函数。
+	 * 一旦映射完成，驱动程序就可以像访问普通内存一样，通过指针（bar_base）来读写硬件寄存器。
 	 */
 	dbg_init("BAR%d: %llu bytes to be mapped.\n", idx, (u64)map_len);
 	xdev->bar[idx] = pci_iomap(dev, idx, map_len);
@@ -2050,6 +2153,11 @@ static int is_config_bar(struct xdma_dev *xdev, int idx)
 }
 
 #ifndef XDMA_CONFIG_BAR_NUM
+/*
+* 以下逻辑根据 XDMA 配置 BAR 的位置和检测到的 BAR 数量来识别哪些 BAR 包含哪些功能。
+* 规则是，用户逻辑 BAR 和旁路逻辑 BAR 是可选的。当两者都存在时，XDMA 配置 BAR 将是第二个检测到的 BAR (config_bar_pos = 1)
+* 其中用户逻辑 BAR 最先被检测到，旁路 BAR 最后被检测到。当其中一个 BAR 被省略时可以通过 XDMA 配置 BAR 是先检测到还是最后检测到来识别存在的 BAR 类型。
+* 当两者都被省略时，仅存在 XDMA 配置 BAR。为了能够正确处理 32 位和 64 位 BAR，我们使用了这种略显复杂的方法，而不是依赖 BAR 编号。*/
 static int identify_bars(struct xdma_dev *xdev, int *bar_id_list, int num_bars,
 			 int config_bar_pos)
 {
@@ -2121,8 +2229,10 @@ static int identify_bars(struct xdma_dev *xdev, int *bar_id_list, int num_bars,
 }
 #endif
 
-/* map_bars() -- map device regions into kernel virtual address space
- *
+/*
+ * map_bars() -- 将设备内存区域映射到内核虚拟地址空间
+ * 在验证设备内存区域的大小符合所需的最小大小后，将设备内存区域映射到内核虚拟地址空间 
+ * map_bars() -- map device regions into kernel virtual address space
  * Map the device memory regions into kernel virtual address space after
  * verifying their sizes respect the minimum sizes needed
  */
@@ -2449,6 +2559,59 @@ static int irq_msix_channel_setup(struct xdma_dev *xdev)
 #else
 		vector = xdev->entry[i].vector;
 #endif
+		/*MSIX 设备驱动程序注册一个xdma_channel_irq中断处理程序，以便处理来自通道中断请求的中断*/
+		/*int request_irq(unsigned int irq, irq_handler_t handler, unsigned long flags, const char *name, void *dev_id)
+1. unsigned int irq
+这是要注册的中断号（IRQ）。每个硬件中断源都被分配一个唯一的 IRQ 号，通过这个号，内核能够知道哪个设备触发了中断。
+
+在传统中断（Legacy IRQ）模式下，IRQ 号通常与 PCI 设备的中断引脚（INTA、INTB 等）相关联。
+
+在 MSI/MSI-X 模式下，IRQ 号是动态分配的，每个中断消息都可以有一个独立的 IRQ 号。
+
+2. irq_handler_t handler
+这是你的中断处理函数。当 irq 发生中断时，内核会调用这个函数来处理事件。
+
+这个函数的原型是：irqreturn_t handler(int irq, void *dev_id)
+
+int irq: 传入中断号。
+
+void *dev_id: 传入的私有数据指针，与 request_irq 的最后一个参数相对应。
+
+处理函数必须返回一个 irqreturn_t 类型的值：
+
+IRQ_HANDLED：表示中断已经被处理。
+
+IRQ_NONE：表示这个中断不是由你的设备触发的（通常发生在共享中断的情况下）。
+
+3. unsigned long flags
+这是一组位标志，用于定义中断处理程序的行为和属性。你可以使用 | 运算符来组合多个标志。
+
+常用的标志包括：
+
+IRQF_SHARED: 允许多个设备驱动程序共享同一个中断号。当多个设备都连接到同一个中断线上时，这个标志是必需的。在你的中断处理函数中，你必须检查中断是否确实由你的设备产生，如果不是，则返回 IRQ_NONE。
+
+IRQF_TRIGGER_RISING: 中断由上升沿触发。
+
+IRQF_TRIGGER_FALLING: 中断由下降沿触发。
+
+IRQF_TRIGGER_HIGH: 中断由高电平触发。
+
+IRQF_TRIGGER_LOW: 中断由低电平触发。
+
+IRQF_ONESHOT: 告诉内核，中断处理函数会等待另一个中断事件，在 irq_wake_thread() 被调用之前，中断线会被禁用。
+
+IRQF_NO_SUSPEND: 中断在系统进入休眠状态时保持开启。
+
+4. const char *name
+这是中断处理程序的名称。这个名称会出现在 /proc/interrupts 文件中，帮助你和系统管理员识别哪个驱动程序注册了哪个中断。通常，你会使用驱动程序的模块名或设备名。
+
+5. void *dev_id
+这是要传递给中断处理函数的私有数据指针。内核会将这个指针原封不动地传递给 handler 函数。
+
+这个参数在共享中断（IRQF_SHARED）的场景下至关重要。内核需要通过这个指针来区分不同的设备，以便在卸载驱动时正确地移除对应的中断处理函数。如果中断不共享，这个参数可以设为 NULL，但为了保持一致性，通常会传递设备结构体指针。
+
+简单来说，dev_id 是一个上下文指针，允许你的中断处理函数访问与特定设备相关的私有数据（如寄存器地址、状态信息等），而无需依赖全局变量。
+		*/
 		rv = request_irq(vector, xdma_channel_irq, 0, xdev->mod_name,
 				 engine);
 		if (rv) {
@@ -2522,6 +2685,7 @@ static int irq_msix_user_setup(struct xdma_dev *xdev)
 #else
 		u32 vector = xdev->entry[j].vector;
 #endif
+		/*MSIX 设备驱动程序注册一个xdma_user_irq中断处理程序，以便处理来自用户中断请求的中断 */
 		rv = request_irq(vector, xdma_user_irq, 0, xdev->mod_name,
 				 &xdev->user_irq[i]);
 		if (rv) {
@@ -2553,6 +2717,7 @@ static int irq_msi_setup(struct xdma_dev *xdev, struct pci_dev *pdev)
 	int rv;
 
 	xdev->irq_line = (int)pdev->irq;
+	/*msi irq设备驱动程序注册一个xdma_isr中断处理程序，以便处理来自通道中断请求的中断*/
 	rv = request_irq(pdev->irq, xdma_isr, 0, xdev->mod_name, xdev);
 	if (rv)
 		dbg_init("Couldn't use IRQ#%d, %d\n", pdev->irq, rv);
@@ -2593,6 +2758,7 @@ static int irq_legacy_setup(struct xdma_dev *xdev, struct pci_dev *pdev)
 	}
 
 	xdev->irq_line = (int)pdev->irq;
+	/*legacy irq设备驱动程序注册一个xdma_isr中断处理程序，以便处理来自通道中断请求的中断*/
 	rv = request_irq(pdev->irq, xdma_isr, IRQF_SHARED, xdev->mod_name,
 			 xdev);
 	if (rv)
@@ -2619,7 +2785,7 @@ static int irq_setup(struct xdma_dev *xdev, struct pci_dev *pdev)
 	pci_keep_intx_enabled(pdev);
 
 	if (xdev->msix_enabled) {
-		int rv = irq_msix_channel_setup(xdev);
+		int rv = irq_msix_channel_setup(xdev);//MSIX
 
 		if (rv)
 			return rv;
@@ -2631,9 +2797,9 @@ static int irq_setup(struct xdma_dev *xdev, struct pci_dev *pdev)
 
 		return 0;
 	} else if (xdev->msi_enabled)
-		return irq_msi_setup(xdev, pdev);
+		return irq_msi_setup(xdev, pdev);//MSI
 
-	return irq_legacy_setup(xdev, pdev);
+	return irq_legacy_setup(xdev, pdev);//Legacy
 }
 
 #ifdef __LIBXDMA_DEBUG__
@@ -2680,7 +2846,14 @@ static void transfer_dump(struct xdma_transfer *transfer)
 }
 #endif /* __LIBXDMA_DEBUG__ */
 
-/* transfer_desc_init() - Chains the descriptors as a singly-linked list
+/*
+* transfer_desc_init() - 将描述符链接成单链表
+* 每个描述符的 next * 指针指定下一个描述符的总线地址。终止最后一个描述符以形成单链表。
+* @transfer 指向 SG DMA 传输的指针
+* @count 在连续 PCI 总线可寻址内存中分配的描述符数量
+*
+* @return 成功时返回 0，失败时返回 EINVAL
+* transfer_desc_init() - Chains the descriptors as a singly-linked list
  *
  * Each descriptor's next * pointer specifies the bus address
  * of the next descriptor.
@@ -2691,6 +2864,17 @@ static void transfer_dump(struct xdma_transfer *transfer)
  * memory
  *
  * @return 0 on success, EINVAL on failure
+ */
+
+ /*
+ 负责构建 DMA 传输的描述符链表结构，确保硬件能够按顺序找到并执行每个描述符。
+
+遍历描述符：它会从第一个描述符开始，一直循环到倒数第二个描述符（i < count - 1）。
+
+链接描述符：在循环中，它会计算出下一个描述符在总线上的地址（desc_bus += sizeof(...)），然后将这个地址写入当前描述符的 next_lo 和 next_hi 字段。
+这样，每个描述符都指向链表中的下一个。
+
+终止链表：循环结束后，它会将最后一个描述符的 next_lo 和 next_hi 字段都设置为 0。这告诉 DMA 硬件，这是链表的最后一个描述符，传输到此结束。
  */
 static int transfer_desc_init(struct xdma_transfer *transfer, int count)
 {
@@ -2720,7 +2904,11 @@ static int transfer_desc_init(struct xdma_transfer *transfer, int count)
 	return 0;
 }
 
-/* xdma_desc_link() - Link two descriptors
+/*将第一个描述符链接到第二个描述符，或终止第一个描述符。
+* @first 第一个描述符
+* @second 第二个描述符，如果第一个描述符必须设置为最后一个，则返回 NULL。
+* @second_bus 第二个描述符的总线地址 
+* xdma_desc_link() - Link two descriptors
  *
  * Link the first descriptor to a second descriptor, or terminate the first.
  *
@@ -2758,7 +2946,8 @@ static void xdma_desc_link(struct xdma_desc *first, struct xdma_desc *second,
 	first->control = cpu_to_le32(control);
 }
 
-/* xdma_desc_adjacent -- Set how many descriptors are adjacent to this one */
+/* 设置与该描述符相邻的描述符数量
+*xdma_desc_adjacent -- Set how many descriptors are adjacent to this one */
 static void xdma_desc_adjacent(struct xdma_desc *desc, u32 next_adjacent)
 {
 	/* remember reserved and control bits */
@@ -2786,7 +2975,12 @@ static int xdma_desc_control_set(struct xdma_desc *first, u32 control_field)
 	return 0;
 }
 
-/* xdma_desc_done - recycle cache-coherent linked list of descriptors.
+/*回收缓存一致的描述符链接列表。
+* @dev 指向 pci_dev 的指针
+* @number 待分配的描述符数量
+* @desc_virt 指向列表中第一个描述符的指针（即虚拟地址）
+* @desc_bus 列表中第一个描述符的总线地址 
+* xdma_desc_done - recycle cache-coherent linked list of descriptors.
  *
  * @dev Pointer to pci_dev
  * @number Number of descriptors to be allocated
@@ -2798,7 +2992,14 @@ static inline void xdma_desc_done(struct xdma_desc *desc_virt, int count)
 	memset(desc_virt, 0, count * sizeof(struct xdma_desc));
 }
 
-/* xdma_desc() - Fill a descriptor with the transfer details
+/*xdma_desc() - 使用传输详细信息填充描述符
+* @desc 指向待填充描述符的指针
+* @addr 根复合体地址
+* @ep_addr 终点地址
+* @len 字节数，必须是 4 的非负倍数。
+* @dir，DMA 方向
+* ep_addr为终点地址。如果为零，则为零。不修改下一个指针 
+* xdma_desc() - Fill a descriptor with the transfer details
  *
  * @desc pointer to descriptor to be filled
  * @addr root complex address
@@ -2809,6 +3010,14 @@ static inline void xdma_desc_done(struct xdma_desc *desc_virt, int count)
  *
  * Does not modify the next pointer
  */
+
+
+ /*
+ 	负责根据传输方向 (dir)，将 ep_addr 作为DMA描述符的 源地址 或 目的地址 来设置。
+  	根据 dir 参数决定如何使用 rc_bus_addr（主机地址）和 ep_addr（AXI地址）来填充描述符中的 src_addr（源地址）和 dst_addr（目的地址）。
+	H2C (DMA_TO_DEVICE): rc_bus_addr 被设置为源地址，ep_addr 被设置为目的地址。
+	C2H (DMA_FROM_DEVICE): ep_addr 被设置为源地址，rc_bus_addr 被设置为目的地址。
+*/
 static void xdma_desc_set(struct xdma_desc *desc, dma_addr_t rc_bus_addr,
 			  u64 ep_addr, int len, int dir)
 {
@@ -2871,7 +3080,34 @@ static int transfer_abort(struct xdma_engine *engine,
 	return 0;
 }
 
-/* transfer_queue() - Queue a DMA transfer on the engine
+/*在引擎上排队 DMA 传输将一个已准备好的 DMA 传输任务提交给指定的 XDMA 引擎。
+这是在软件端启动一次 DMA 传输的最后一步。该函数负责管理并发访问、将任务添加到引擎的队列中，并在必要时启动引擎。
+ DMA 传输任务的调度员。它在保证线程安全的前提下，将新任务添加到队列中，并确保空闲的 DMA 引擎能够立即开始工作
+
+1、错误和状态检查
+函数首先会进行一系列严谨的检查，确保 engine 和 transfer 指针都有效。它还会检查 DMA 引擎或其父设备 (xdev) 是否处于离线或关闭状态。如果不能排队，函数会立即返回错误码（如 -EBUSY 或 -EINVAL）。
+
+2、并发管理
+spin_lock_irqsave(&engine->lock, flags) 这行代码非常关键。它获取一个自旋锁，保护 DMA 引擎的内部状态，防止它被并发的 CPU 核心或中断处理程序意外修改。这对于安全地管理引擎的传输队列至关重要。
+
+3、任务入队
+
+传输任务的状态被设置为 TRANSFER_STATE_SUBMITTED，表明它已被提交并处于等待处理的状态。
+list_add_tail(&transfer->entry, &engine->transfer_list) 将 transfer 结构体添加到引擎内部的 transfer_list 链表的尾部。这个链表存储了所有待处理的传输任务。
+
+4、启动引擎
+
+函数会检查引擎是否处于空闲状态 (!engine->running)。
+如果引擎空闲，它会调用 engine_start(engine)。这个函数负责将第一个 DMA 描述符的地址写入引擎的控制寄存器，从而实际启动硬件 DMA 传输过程。之后，引擎的状态会被更新为 running。
+如果引擎已经在运行，那么新的传输任务只会被简单地添加到队列中，等待前面的任务完成后自动开始。
+
+5、释放锁与返回
+函数通过 spin_unlock_irqrestore(&engine->lock, flags) 释放自旋锁，并返回一个状态码（成功返回 0，失败返回负数）。使用 irqrestore 很重要，因为它会恢复获取锁之前的中断状态，避免潜在的死锁问题。
+*
+* @engine 执行传输的 DMA 引擎
+* @transfer 已提交给引擎的 DMA 传输
+* 获取并释放引擎自旋锁 
+* transfer_queue() - Queue a DMA transfer on the engine
  *
  * @engine DMA engine doing the transfer
  * @transfer DMA transfer submitted to the engine
@@ -2885,7 +3121,7 @@ static int transfer_queue(struct xdma_engine *engine,
 	struct xdma_transfer *transfer_started;
 	struct xdma_dev *xdev;
 	unsigned long flags;
-
+//1、错误和状态检查
 	if (!engine) {
 		pr_err("dma engine NULL\n");
 		return -EINVAL;
@@ -2914,7 +3150,7 @@ static int transfer_queue(struct xdma_engine *engine,
 			transfer);
 		return -EBUSY;
 	}
-
+//2、并发管理
 	/* lock the engine state */
 	spin_lock_irqsave(&engine->lock, flags);
 
@@ -2928,7 +3164,7 @@ static int transfer_queue(struct xdma_engine *engine,
 		rv = -EBUSY;
 		goto shutdown;
 	}
-
+//3、任务入队
 	/* mark the transfer as submitted */
 	transfer->state = TRANSFER_STATE_SUBMITTED;
 	/* add transfer to the tail of the engine transfer queue */
@@ -2938,7 +3174,7 @@ static int transfer_queue(struct xdma_engine *engine,
 	if (!engine->running) {
 		/* start engine */
 		dbg_tfr("%s(): starting %s engine.\n", __func__, engine->name);
-		transfer_started = engine_start(engine);
+		transfer_started = engine_start(engine);//启动引擎
 		if (!transfer_started) {
 			pr_err("Failed to start dma engine\n");
 			goto shutdown;
@@ -2953,6 +3189,7 @@ static int transfer_queue(struct xdma_engine *engine,
 shutdown:
 	/* unlock the engine state */
 	dbg_tfr("engine->running = %d\n", engine->running);
+//5、释放锁与返回
 	spin_unlock_irqrestore(&engine->lock, flags);
 	return rv;
 }
@@ -3151,7 +3388,16 @@ static int engine_writeback_setup(struct xdma_engine *engine)
 	return 0;
 }
 
-/* engine_create() - Create an SG DMA engine bookkeeping data structure
+/*
+* engine_create() - 创建 SG DMA 引擎 数据结构
+
+* SG DMA 引擎包含单向传输队列的资源；SG DMA 硬件、软件队列和中断处理。
+* @dev 指向 pci_dev 的指针
+* @offset SG DMA 控制器寄存器在 BAR[xdev->config_bar_idx] 资源中的字节地址偏移量。
+* @dir: DMA_TO/FROM_DEVICE
+* @streaming 引擎是否连接到 AXI ST（而不是 MM） 
+* 
+* engine_create() - Create an SG DMA engine bookkeeping data structure
  *
  * An SG DMA engine consists of the resources for a single-direction transfer
  * queue; the SG DMA hardware, the software queue and interrupt handling.
@@ -3162,6 +3408,8 @@ static int engine_writeback_setup(struct xdma_engine *engine)
  * @dir: DMA_TO/FROM_DEVICE
  * @streaming Whether the engine is attached to AXI ST (rather than MM)
  */
+
+ /*初始化 XDMA IP 核的控制寄存器，如中断使能和工作模式。*/
 static int engine_init_regs(struct xdma_engine *engine)
 {
 	u32 reg_value;
@@ -3219,11 +3467,20 @@ static int engine_init_regs(struct xdma_engine *engine)
 fail_wb:
 	return rv;
 }
-
+/*为 DMA 描述符和写回地址等主机侧资源分配内存。这是 DMA 传输的源地址。
+DMA引擎描述符缓冲区的初始化*/
 static int engine_alloc_resource(struct xdma_engine *engine)
 {
 	struct xdma_dev *xdev = engine->xdev;
+/*
+分配内存：dma_alloc_coherent 会在系统内存中分配一块大小为 engine->desc_max * sizeof(struct xdma_desc) 的连续物理内存。
 
+缓存一致性：coherent 这个词意味着这块内存是缓存一致的。这意味着 CPU 和 DMA 控制器都可以直接读写这块内存，而无需担心数据不一致的问题。这是进行 DMA 传输所必需的。
+
+返回地址：它将这块连续物理内存的虚拟地址返回给 engine->desc。它通过指针将这块内存的总线地址（PCIe 地址）返回给 engine->desc_bus。
+
+初始化完成后，engine->desc 就可以被驱动程序用于读写描述符的内容，而 engine->desc_bus 则会被写入到 DMA 引擎的寄存器中，用于告诉硬件从哪里开始读取描述符链表。
+*/
 	engine->desc = dma_alloc_coherent(&xdev->pdev->dev,
 					  engine->desc_max *
 						  sizeof(struct xdma_desc),
@@ -3265,7 +3522,7 @@ err_out:
 	engine_free_resource(engine);
 	return -ENOMEM;
 }
-
+/* 初始化 xdma_engine 结构体的基本信息，如名称、方向 (dir)、通道号 (channel) 和寄存器指针。*/
 static int engine_init(struct xdma_engine *engine, struct xdma_dev *xdev,
 		       int offset, enum dma_data_direction dir, int channel)
 {
@@ -3309,7 +3566,11 @@ static int engine_init(struct xdma_engine *engine, struct xdma_dev *xdev,
 	dbg_init("engine %p name %s irq_bitmask=0x%08x\n", engine, engine->name,
 		 (int)engine->irq_bitmask);
 
-	/* initialize the deferred work for transfer completion */
+	/* initialize the deferred work for transfer completion 
+	可以把 struct work_struct 看作一张“待办事项卡”。卡片上填写两项内容：
+	你想要运行的函数engine_service_work（一个函数指针，例如 void (*func)(struct work_struct *work)）.
+	你希望传递给这个函数的数据。*/
+	pr_err("INIT_WORK engine_service\n");
 	INIT_WORK(&engine->work, engine_service_work);
 
 	if (dir == DMA_TO_DEVICE)
@@ -3368,7 +3629,14 @@ static int transfer_build(struct xdma_engine *engine,
 			 i + req->sw_desc_idx, req->sw_desc_cnt, sdesc->addr,
 			 sdesc->len, req->ep_addr);
 
-		/* fill in descriptor entry j with transfer details */
+		/* 核心代码
+		fill in descriptor entry j with transfer details 
+		xfer->desc_virt + j: 当前要填充的DMA描述符。
+		sdesc->addr: 主机（Root Complex）内存的地址。
+		req->ep_addr: 这就是 AXI DMA 地址，即 FPGA 端 DMA 的目标地址。
+		sdesc->len: 传输的长度。
+		xfer->dir: 传输方向（H2C或C2H）。
+		*/
 		xdma_desc_set(xfer->desc_virt + j, sdesc->addr, req->ep_addr,
 			      sdesc->len, xfer->dir);
 		xfer->len += sdesc->len;
@@ -3392,7 +3660,30 @@ static int transfer_build(struct xdma_engine *engine,
 	return 0;
 }
 
+/*
+高级别的函数，它的任务是为每一次具体的 DMA 传输请求做准备。它在用户空间应用程序每次调用 read() 或 write() 时被调用。
+它在每次传输请求时被调用，利用 engine_init 准备好的资源（如DMA引擎描述符缓冲区）来构建具体的传输任务。它的职责包括：
 
+1、分配传输结构：初始化一个 xdma_transfer 结构体，这个结构体代表一次完整的 DMA 传输任务。
+2、构建描述符：根据用户请求的缓冲区信息，创建和填充一个或多个 DMA 描述符，形成一个链表。这个链表包含了传输的源地址、目的地址和长度等具体细节。
+3、链接到引擎：将本次传输的描述符链表与 DMA 引擎的描述符环形缓冲区关联起来，并设置最后的控制标志（例如，XDMA_DESC_EOP 和 XDMA_DESC_COMPLETED）。
+
+负责组织和准备一次完整的 DMA 传输。这个函数整合了多个步骤，将 DMA 传输从一个请求转换成一个可由硬件执行的描述符链表。
+它通过调用其他函数来构建传输描述符链表，填充传输细节，并设置控制标志，最终将一个软件请求转换为一个硬件可以执行的 DMA 任务。
+
+1、确定描述符数量：它首先计算本次传输需要使用的最大描述符数量desc_max。这个数量取决于用户请求中剩下的描述符数量和 DMA 引擎中可用的描述符数量。
+
+2、初始化传输结构：它清空 xdma_transfer 结构体，并初始化一个等待队列。这个等待队列是实现异步传输的关键，当传输完成时，驱动程序会通过这个队列唤醒等待的应用程序。
+
+3、映射地址：它根据 engine 结构体中的信息，计算出本次传输使用的描述符和结果缓冲区的虚拟地址和总线地址。这确保了本次传输的数据结构都位于正确的预分配内存块中。
+
+4、构建描述符：
+
+4.1它调用 transfer_desc_init 来构建描述符的链表结构。
+4.2它调用 transfer_build来填充每个描述符的详细信息，包括主机地址、FPGA 的 AXI 地址和传输长度。
+4.3配置最后一个描述符：这是一个非常关键的步骤。它为描述符链表中的最后一个描述符设置控制位，例如 XDMA_DESC_STOPPED、XDMA_DESC_EOP（数据包结束）和 XDMA_DESC_COMPLETED。
+这些位告诉硬件：在完成这个描述符后停止传输，这是一个数据包的结尾，在传输完成后发出中断请求，最后它会更新 engine 结构体中的描述符索引 engine->desc_idx 和已使用数量 engine->desc_used，以便驱动程序能够跟踪和管理描述符的环形缓冲区。
+*/
 static int transfer_init(struct xdma_engine *engine,
 			struct xdma_request_cb *req, struct xdma_transfer *xfer)
 {
@@ -3456,6 +3747,10 @@ static int transfer_init(struct xdma_engine *engine,
 
 	xfer->desc_num = desc_max;
 	engine->desc_idx = (engine->desc_idx + desc_max) % engine->desc_max;
+	/*
+	*环形缓冲区的精髓。它将当前的描述符索引加上本次传输使用的描述符数量 desc_max，然后对总描述符数量 engine->desc_max 进行取模（取余数）运算。
+	*当索引到达缓冲区的末尾时，取模运算会使其自动“环绕”到缓冲区的开头，从而实现循环使用。
+	*/
 	engine->desc_used += desc_max;
 
 	/* fill in adjacent numbers */
@@ -3970,7 +4265,7 @@ ssize_t xdma_xfer_submit(void *dev_hndl, int channel, bool write, u64 ep_addr,
 			return -EIO;
 		}
 	}
-
+/*创建一个 xdma_request_cb 结构体，并将 ep_addr 存储在 req->ep_addr 中。 */
 	req = xdma_init_request(sgt, ep_addr);
 	if (!req) {
 		rv = -ENOMEM;
@@ -4961,7 +5256,7 @@ void *xdma_device_open(const char *mname, struct pci_dev *pdev, int *user_max,
 	rv = enable_msi_msix(xdev, pdev);
 	if (rv < 0)
 		goto err_engines;
-
+	/* MSXI MSI Legacy中断设置总入口 */
 	rv = irq_setup(xdev, pdev);
 	if (rv < 0)
 		goto err_msix;
