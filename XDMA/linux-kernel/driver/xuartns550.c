@@ -256,9 +256,14 @@ unsigned int XUartNs550_Send(XUartNs550 *InstancePtr, u8 *BufferPtr,
 	 * Setup the specified buffer to be sent by setting the instance
 	 * variables so it can be sent with polled or interrupt mode
 	 */
+	unsigned long flags;
+	//spin_lock_irqsave(&InstancePtr->SendBuffer.XUartNs550_buffer_lock, flags);
+	
 	InstancePtr->SendBuffer.RequestedBytes = NumBytes;
 	InstancePtr->SendBuffer.RemainingBytes = NumBytes;
 	InstancePtr->SendBuffer.NextBytePtr = BufferPtr;
+
+	//spin_unlock_irqrestore(&InstancePtr->SendBuffer.XUartNs550_buffer_lock, flags);
 
 	/*
 	 * Send the buffer using the UART and return the number of bytes sent
@@ -393,11 +398,22 @@ unsigned int XUartNs550_SendBuffer(XUartNs550 *InstancePtr)
 	u32 IirRegister;
 	u32 IerRegister;
 
+	unsigned long flags;
+
+	
+	IerRegister = XUartNs550_ReadReg(InstancePtr->BaseAddress,
+						XUN_IER_OFFSET);
+	XUartNs550_WriteReg(InstancePtr->BaseAddress, XUN_IER_OFFSET,
+				IerRegister & ~XUN_IER_TX_EMPTY);
+	
+
 	/*
 	 * Read the line status register to determine if the transmitter is
 	 * empty
 	 */
+	//spin_lock_irqsave(&InstancePtr->XUartNs550_lock, flags);
 	LsrRegister = XUartNs550_GetLineStatusReg(InstancePtr->BaseAddress);
+	//spin_unlock_irqrestore(&InstancePtr->XUartNs550_lock, flags);	
 
 	/*
 	 * If the transmitter is not empty then don't send any data, the empty
@@ -426,7 +442,7 @@ unsigned int XUartNs550_SendBuffer(XUartNs550 *InstancePtr)
 			} else {
 				FifoSize = XUN_FIFO_SIZE - 1;
 			}
-
+			//pr_info("TX Buff %d FIFO Size\n",FifoSize);
 			/*
 			 * FIFOs are enabled, if the number of bytes to send
 			 * is less than the size of the FIFO, then send all
@@ -438,6 +454,7 @@ unsigned int XUartNs550_SendBuffer(XUartNs550 *InstancePtr)
 			} else {
 				BytesToSend = FifoSize;
 			}
+
 		} else if (InstancePtr->SendBuffer.RemainingBytes > 0) {
 			/*
 			 * Without FIFOs, we can only send 1 byte. We needed to
@@ -447,23 +464,29 @@ unsigned int XUartNs550_SendBuffer(XUartNs550 *InstancePtr)
 			 */
 			BytesToSend = 1;
 		}
-
+		//pr_info("TX Buff %d data to write\n",BytesToSend);
 		/*
 		 * Fill the FIFO if it's present or the transmitter only from
 		 * the the buffer that was specified
 		 */
 		for (SentCount = 0; SentCount < BytesToSend; SentCount++) {
+
 			XUartNs550_WriteReg(InstancePtr->BaseAddress,
 						XUN_THR_OFFSET,
 				InstancePtr->SendBuffer.NextBytePtr[SentCount]);
+
 		}
 	}
 	/*
 	 * Update the buffer to reflect the bytes that were sent from it
 	 */
+	
+	//spin_lock_irqsave(&InstancePtr->SendBuffer.XUartNs550_buffer_lock, flags);
+	
 	InstancePtr->SendBuffer.NextBytePtr += SentCount;
 	InstancePtr->SendBuffer.RemainingBytes -= SentCount;
 
+	//spin_unlock_irqrestore(&InstancePtr->SendBuffer.XUartNs550_buffer_lock, flags);
 	/*
 	 * Increment associated counters
 	 */
@@ -476,7 +499,8 @@ unsigned int XUartNs550_SendBuffer(XUartNs550 *InstancePtr)
 	 */
 	IerRegister = XUartNs550_ReadReg(InstancePtr->BaseAddress,
 						XUN_IER_OFFSET);
-	if (IerRegister & XUN_IER_RX_DATA) {
+	//if (IerRegister & XUN_IER_RX_DATA) 
+	{
 		XUartNs550_WriteReg(InstancePtr->BaseAddress, XUN_IER_OFFSET,
 				 IerRegister | XUN_IER_TX_EMPTY);
 	}

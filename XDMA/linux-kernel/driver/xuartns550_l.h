@@ -79,7 +79,7 @@
  * FIFOs includes the transmitter and receiver such that it is the total number
  * of bytes that the UART can buffer
  */
-#define XUN_FIFO_SIZE			16
+#define XUN_FIFO_SIZE			256
 
 
 /**

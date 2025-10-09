@@ -1892,6 +1892,9 @@ static irqreturn_t xdma_isr(int irq, void *dev_id)
 	u32 mask;
 	struct xdma_dev *xdev;
 	struct interrupt_regs *irq_regs;
+	//==================add 2025.9.18===============
+	//truct xdma_engine *engine;
+	//==================add 2025.9.18===============
 
 	dbg_irq("(irq=%d, dev 0x%p) <<<< ISR.\n", irq, dev_id);
 	if (!dev_id) {
@@ -1939,7 +1942,7 @@ static irqreturn_t xdma_isr(int irq, void *dev_id)
 	//pr_err("ch_irq = 0x%08x\n", ch_irq);
 	//pr_err("xdev->mask_irq_h2c = 0x%08x\n", xdev->mask_irq_h2c);
 	mask = ch_irq & xdev->mask_irq_h2c;
-	//pr_err("mask_irq_h2c = 0x%08x\n", mask);
+	pr_err("mask_irq_h2c = 0x%08x\n", mask);
 	if (mask) {
 		int channel = 0;
 		int max = xdev->h2c_channel_max;
@@ -1947,7 +1950,16 @@ static irqreturn_t xdma_isr(int irq, void *dev_id)
 		/* iterate over H2C (PCIe read) */
 		for (channel = 0; channel < max && mask; channel++) {
 			struct xdma_engine *engine = &xdev->engine_h2c[channel];
-
+//==================add 2025.9.18===============
+			/* Disable the interrupt for this engine */
+			write_register(
+				engine->interrupt_enable_mask_value,
+				&engine->regs->interrupt_enable_mask_w1c,
+				(unsigned long)(&engine->regs->interrupt_enable_mask_w1c) -
+					(unsigned long)(&engine->regs));
+			/* Dummy read to flush the above write */
+			read_register(&irq_regs->channel_int_pending);
+//==================add 2025.9.18===============
 			/* engine present and its interrupt fired? */
 			if ((engine->irq_bitmask & mask) &&
 			    (engine->magic == MAGIC_ENGINE)) {
@@ -1969,8 +1981,9 @@ static irqreturn_t xdma_isr(int irq, void *dev_id)
 			}
 		}
 	}
-	pr_err("xdev->mask_irq_c2h = 0x%08x\n", xdev->mask_irq_c2h);
+	dbg_irq("xdev->mask_irq_c2h = 0x%08x\n", xdev->mask_irq_c2h);
 	mask = ch_irq & xdev->mask_irq_c2h;
+	dbg_irq("mask_irq_c2h = 0x%08x\n", mask);
 	pr_err("mask_irq_c2h = 0x%08x\n", mask);
 	if (mask) {
 		int channel = 0;
@@ -1979,7 +1992,16 @@ static irqreturn_t xdma_isr(int irq, void *dev_id)
 		/* iterate over C2H (PCIe write) */
 		for (channel = 0; channel < max && mask; channel++) {
 			struct xdma_engine *engine = &xdev->engine_c2h[channel];
-
+//==================add 2025.9.18===============
+			/* Disable the interrupt for this engine */
+			write_register(
+				engine->interrupt_enable_mask_value,
+				&engine->regs->interrupt_enable_mask_w1c,
+				(unsigned long)(&engine->regs->interrupt_enable_mask_w1c) -
+					(unsigned long)(&engine->regs));
+			/* Dummy read to flush the above write */
+			read_register(&irq_regs->channel_int_pending);
+//==================add 2025.9.18===============
 			/* engine present and its interrupt fired? */
 			if ((engine->irq_bitmask & mask) &&
 			    (engine->magic == MAGIC_ENGINE)) {
@@ -2005,6 +2027,7 @@ static irqreturn_t xdma_user_irq(int irq, void *dev_id)
 	struct xdma_user_irq *user_irq;
 
 	dbg_irq("(irq=%d) <<<< INTERRUPT SERVICE ROUTINE\n", irq);
+	//pr_err("(irq=%d) <<<< INTERRUPT SERVICE ROUTINE\n", irq);
 
 	if (!dev_id) {
 		pr_err("Invalid dev_id on irq line %d\n", irq);
@@ -2023,8 +2046,8 @@ static irqreturn_t xdma_user_irq(int irq, void *dev_id)
 static irqreturn_t xdma_channel_irq(int irq, void *dev_id)
 {
 	struct xdma_dev *xdev;
-	struct xdma_engine *engine;
 	struct interrupt_regs *irq_regs;
+	struct xdma_engine *engine;
 
 	dbg_irq("(irq=%d) <<<< INTERRUPT service ROUTINE\n", irq);
 	if (!dev_id) {
@@ -2715,7 +2738,7 @@ static int irq_msix_user_setup(struct xdma_dev *xdev)
 static int irq_msi_setup(struct xdma_dev *xdev, struct pci_dev *pdev)
 {
 	int rv;
-
+	pr_info("msi irq setup 0x%4x \n",pdev->device);
 	xdev->irq_line = (int)pdev->irq;
 	/*msi irq设备驱动程序注册一个xdma_isr中断处理程序，以便处理来自通道中断请求的中断*/
 	rv = request_irq(pdev->irq, xdma_isr, 0, xdev->mod_name, xdev);
@@ -2733,7 +2756,7 @@ static int irq_legacy_setup(struct xdma_dev *xdev, struct pci_dev *pdev)
 	u8 val;
 	void *reg;
 	int rv;
-
+	pr_info("legacy irq setup 0x%4x \n",pdev->device);
 	pci_read_config_byte(pdev, PCI_INTERRUPT_PIN, &val);
 	if (val == 0) {
 		dbg_init("Legacy interrupt not supported\n");
@@ -2785,19 +2808,24 @@ static int irq_setup(struct xdma_dev *xdev, struct pci_dev *pdev)
 	pci_keep_intx_enabled(pdev);
 
 	if (xdev->msix_enabled) {
-		int rv = irq_msix_channel_setup(xdev);//MSIX
+		pr_info("msix irq setup 0x%4x \n",pdev->device);
+		int rv;
+		/*
+		rv = irq_msix_channel_setup(xdev);//MSIX
 
 		if (rv)
 			return rv;
+		*/
 		rv = irq_msix_user_setup(xdev);
 		if (rv)
 			return rv;
-		prog_irq_msix_channel(xdev, 0);
+		//prog_irq_msix_channel(xdev, 0);
 		prog_irq_msix_user(xdev, 0);
 
 		return 0;
 	} else if (xdev->msi_enabled)
 		return irq_msi_setup(xdev, pdev);//MSI
+		//return;
 
 	return irq_legacy_setup(xdev, pdev);//Legacy
 }

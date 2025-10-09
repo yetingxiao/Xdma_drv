@@ -27,6 +27,8 @@ static volatile int TotalSentCount;
 #define UART_CLOCK_HZ		XPAR_UARTNS550_0_CLOCK_HZ
 #define UART_BASEADDR		XPAR_UARTNS550_0_BASEADDR
 
+#define ReadLength  7*16
+
 extern struct es_cdev *es_cdevPtr;
 // ... 其他头文件
 
@@ -39,6 +41,92 @@ static struct file_operations AXIUart_fops;
 // ==========================================================
 // 2. 文件操作回调函数
 // ==========================================================
+/*
+void uart_half_bottom_service_work(struct work_struct *work){
+     unsigned long flags;
+	struct uart_dev * dev= container_of(work,struct uart_dev,work);
+
+    spin_lock_irqsave(&dev->tx_lock, flags);
+    size_t data_cnt = CIRC_CNT(dev->tx_head, dev->tx_tail, UART_BUFFER_SIZE);
+    // 从缓冲区取16个字节或剩余所有字节
+    u8 *to_send_ptr = &dev->tx_buffer[dev->tx_tail];
+    size_t send_len = min_t(size_t, 10, data_cnt);
+    spin_unlock_irqrestore(&dev->tx_lock, flags);
+
+
+    XUartNs550_Send(dev->uart_instance, to_send_ptr, send_len);
+    spin_lock_irqsave(&dev->tx_lock, flags);
+            // 更新尾部指针
+    dev->tx_tail = (dev->tx_tail + send_len) & (UART_BUFFER_SIZE - 1);
+    spin_unlock_irqrestore(&dev->tx_lock, flags);
+	//XUartNs550_SendBuffer(AXIUartPtr);
+}
+*/
+
+void AXIUart_Data_Interrupt_Enable(XUartNs550 *uart_instance){
+	/*
+	 * Enable the interrupt of the UART so interrupts will occur,and keep the
+	 * FIFOs enabled.
+	 */
+    u16 Options = XUartNs550_GetOptions(uart_instance);
+	Options = XUN_OPTION_DATA_INTR |
+			XUN_OPTION_FIFOS_ENABLE;
+	XUartNs550_SetOptions(uart_instance, Options);
+}
+
+void AXIUart_Data_Interrupt_Disable(XUartNs550 *uart_instance){
+	/*
+	 * Enable the interrupt of the UART so interrupts will occur,and keep the
+	 * FIFOs enabled.
+	 */
+    u16 Options = XUartNs550_GetOptions(uart_instance);
+	Options = Options & ~(XUN_OPTION_DATA_INTR);
+	XUartNs550_SetOptions(uart_instance, Options);
+}
+
+void TX_EMPTY_Interrupt_Enable(XUartNs550 *uart_instance)
+{
+    u32 IerRegister;
+    IerRegister = XUartNs550_ReadReg(uart_instance->BaseAddress,XUN_IER_OFFSET);
+	//if (IerRegister & XUN_IER_RX_DATA) 
+	{
+		XUartNs550_WriteReg(uart_instance->BaseAddress, XUN_IER_OFFSET,
+				 IerRegister | XUN_IER_TX_EMPTY);
+	}
+}
+
+void TX_EMPTY_Interrupt_Disable(XUartNs550 *uart_instance)
+{
+    u32 IerRegister;
+    IerRegister = XUartNs550_ReadReg(uart_instance->BaseAddress,XUN_IER_OFFSET);
+	//if (IerRegister & XUN_IER_RX_DATA) 
+	{
+		XUartNs550_WriteReg(uart_instance->BaseAddress,  XUN_IER_OFFSET,
+				 IerRegister & ~XUN_IER_TX_EMPTY);
+	}
+}
+
+void RX_RecvData_Interrupt_Enable(XUartNs550 *uart_instance)
+{
+    u32 IerRegister;
+    IerRegister = XUartNs550_ReadReg(uart_instance->BaseAddress,XUN_IER_OFFSET);
+	        XUartNs550_WriteReg(uart_instance->BaseAddress, XUN_IER_OFFSET,
+				 IerRegister | XUN_IER_RX_DATA);
+}
+
+
+void RX_TimeOut_Interrupt_Disable(XUartNs550 *uart_instance)
+{
+    u32 IerRegister;
+    IerRegister = XUartNs550_ReadReg(uart_instance->BaseAddress,XUN_IER_OFFSET);
+	//if (IerRegister & XUN_IER_RX_DATA) 
+	{
+		XUartNs550_WriteReg(uart_instance->BaseAddress, XUN_IER_OFFSET,
+				 IerRegister  & ~ XUN_IER_RX_DATA);
+	}
+}
+
+
 static int AXIUart_open(struct inode *inode, struct file *filp) {
     filp->private_data = &AXIUart_dev;
 	//filp->f_op = &AXIUart_fops;
@@ -48,8 +136,27 @@ static int AXIUart_open(struct inode *inode, struct file *filp) {
 
 static int AXIUart_release(struct inode *inode, struct file *filp) {
 	printk(KERN_INFO "AXIUart: Device closed.\n");
+    struct uart_dev *dev = (struct uart_dev *)filp->private_data;
+
+    if(dev==NULL)
+        pr_err("NULL point\n");
+
+    /** 通过禁用所有 UART 中断进入关键区域，以允许此调用 停止之前可能由中断驱动的操作
+	 * Enter a critical region by disabling all the UART interrupts to allow
+	 * this call to stop a previous operation that may be interrupt driven
+	 */
+    u32 IerRegister;
+	IerRegister = XUartNs550_ReadReg(dev->uart_instance->BaseAddress,
+						XUN_IER_OFFSET);
+	XUartNs550_WriteReg(dev->uart_instance->BaseAddress, XUN_IER_OFFSET, 0);
+
+    //TX_EMPTY_Interrupt_Disable(dev->uart_instance);
+    //RX_TimeOut_Interrupt_Disable(dev->uart_instance);
+
     return 0;
 }
+
+
 /*
 在 AXIUart_read 函数中，RX缓冲区被用作一个生产者-消费者队列。
 
@@ -69,6 +176,14 @@ static ssize_t AXIUart_read(struct file *filp, char __user *buf, size_t count, l
     unsigned long flags;
 	int buff_count;
 	u32 IerRegister;
+
+    u8 ReceivedBytePtr[256];
+
+	u8 ReceivedByte;
+	
+	int i;
+	size_t data_cnt;
+
 	//pr_info("AXIUart_read Start\n");
 	spin_lock_irqsave(&dev->rx_lock, flags);
 	buff_count=CIRC_CNT(dev->rx_head, dev->rx_tail, UART_BUFFER_SIZE);
@@ -87,6 +202,44 @@ static ssize_t AXIUart_read(struct file *filp, char __user *buf, size_t count, l
            return -ERESTARTSYS; // 被信号打断
         }
     }
+
+    
+    // 判断接收器和/或 FIFO 中是否有接收数据，如果有则循环读取所有可用字节直到没有
+	while (XUartNs550_IsReceiveData(dev->uart_instance))  
+    {	
+			spin_lock_irqsave(&dev->rx_lock, flags);
+			buff_count=CIRC_SPACE(dev->rx_head, dev->rx_tail, UART_BUFFER_SIZE) ;
+			// 释放锁
+			spin_unlock_irqrestore(&dev->rx_lock, flags);
+            // 检查接收缓冲区是否已满
+            if (buff_count== 0) {
+                // 缓冲区已满，丢弃数据或记录溢出错误
+				XUartNs550_Recv(dev->uart_instance, &ReceivedByte, 1); // 必须读取以清空FIFO
+                //printk(KERN_WARNING "AXIUart: RX buffer overflow, data dropped.\n");
+                break;
+            }
+            // 从UART硬件读取7个字节
+			//pr_info("XUartNs550_IntHandler Before One Cycle Rec \n");
+
+            //RX_RecvData_Interrupt_Enable(dev->uart_instance);
+
+            XUartNs550_Recv(dev->uart_instance, ReceivedBytePtr, ReadLength);
+			//XUartNs550_Recv(dev->uart_instance, &ReceivedByte, 1);
+			//pr_info("XUartNs550_IntHandler After One Cycle Rec \n");
+
+			// 将字节存入内核环形缓冲区
+			spin_lock_irqsave(&dev->rx_lock, flags);
+			for(i=0;i<ReadLength;i++)
+			{	
+				dev->rx_buffer[dev->rx_head+i] = ReceivedBytePtr[i];
+			} 
+			dev->rx_head = (dev->rx_head + ReadLength) & (UART_BUFFER_SIZE - 1);
+            //dev->rx_buffer[dev->rx_head] = ReceivedByte;
+            //dev->rx_head = (dev->rx_head + 1) & (UART_BUFFER_SIZE - 1);
+			spin_unlock_irqrestore(&dev->rx_lock, flags);
+    }
+    
+
 
     // 2. 数据拷贝：使用copy_to_user将数据从内核拷贝到用户空间 ;spin_lock_irqsave(&dev->lock, flags) 宏保护共享资源，因为rx_head和rx_tail可能会被read函数和中断处理程序同时访问。
     spin_lock_irqsave(&dev->rx_lock, flags);
@@ -117,10 +270,7 @@ static ssize_t AXIUart_read(struct file *filp, char __user *buf, size_t count, l
 		
         copied += read_len;
     }
-    
-	IerRegister = XUartNs550_ReadReg(dev->uart_instance->BaseAddress,XUN_IER_OFFSET);
-	XUartNs550_WriteReg(dev->uart_instance->BaseAddress, XUN_IER_OFFSET,
-				 IerRegister | XUN_IER_RX_DATA);
+
 
 	//pr_info("AXIUart_read end\n");
     return copied;
@@ -141,15 +291,16 @@ static ssize_t AXIUart_write(struct file *filp, const char __user *buf, size_t c
 	struct uart_dev *dev = (struct uart_dev *)filp->private_data;
     size_t to_write, written;
     unsigned long flags;
-	int buff_count,buff_space;
+	int data_cnt,buff_space;
+    size_t send_len;
 	//pr_info("AXIUart_write Start\n");
 
     spin_lock_irqsave(&dev->tx_lock, flags);
 	buff_space=CIRC_SPACE(dev->tx_head, dev->tx_tail, UART_BUFFER_SIZE);//CIRC_CNT 计算的是缓冲区中已使用的字节数（即可读取的数据量）。CIRC_SPACE计算的是缓冲区中空闲的字节数（即可写入的空间量）。
+    data_cnt=CIRC_CNT(dev->tx_head, dev->tx_tail, UART_BUFFER_SIZE);
 	spin_unlock_irqrestore(&dev->tx_lock, flags);
-	//pr_info("Buff Space %d,write %d byte\n",buff_space,count);
+	//pr_info("TX Buff %d data to write\n",data_cnt);
     // 1. 检查可用空间 计算缓冲区中剩余的可用空间。如果缓冲区已满，休眠进程,添加等待队列 wait_event_interruptible 来支持阻塞写入
-	
 	if (buff_space<count)
 	{
 		
@@ -158,10 +309,11 @@ static ssize_t AXIUart_write(struct file *filp, const char __user *buf, size_t c
             return -EAGAIN; // 非阻塞模式下无数据则返回错误
         } 
 		
+        TX_EMPTY_Interrupt_Enable(dev->uart_instance);
 		// wait_event_interruptible会检查这个条件。等待队列,如果缓冲区为空（CIRC_CNT CIRC_SPACE 为0）进程就会进入睡眠状态;					等待中断处理程序写入新数据并唤醒它。
         if (wait_event_interruptible(dev->tx_wait_queue,
-           CIRC_SPACE(dev->tx_head, dev->tx_tail, UART_BUFFER_SIZE)) >= count) {
-		   pr_info("AXIUart_write wait_event_interruptible INT error \n");
+           CIRC_SPACE(dev->tx_head, dev->tx_tail, UART_BUFFER_SIZE)>= count) ) {
+		   pr_info("AXIUart_write wait_event_interruptible INT error \n");//[ 2726.259364] AXIUart_write wait_event_interruptible INT error 进入过
            return -ERESTARTSYS; // 被信号打断
         }
 	}	
@@ -202,21 +354,62 @@ static ssize_t AXIUart_write(struct file *filp, const char __user *buf, size_t c
     
    // 4. 将数据送入UART硬件		
     spin_lock_irqsave(&dev->tx_lock, flags);
-	buff_count=CIRC_CNT(dev->tx_head, dev->tx_tail, UART_BUFFER_SIZE);
-	spin_unlock_irqrestore(&dev->tx_lock, flags);
 
+        data_cnt = CIRC_CNT(dev->tx_head, dev->tx_tail, UART_BUFFER_SIZE);
+        if (data_cnt > 0) {
+            // 从缓冲区取256个字节或剩余所有字节
+            
+            u8 *to_send_ptr = &dev->tx_buffer[dev->tx_tail];
+            send_len = min_t(size_t, 256, data_cnt);
+
+            //pr_info("TX Buff %d byte data to write\n",send_len);
+            spin_unlock_irqrestore(&dev->tx_lock, flags);
+
+            //pr_info("User Buffer Have Data to TX\n");
+			//pr_info("XUartNs550_IntHandler Before One Cycle Send \n");
+            //INIT_WORK(&InstancePtr->work,uart_service_work);
+            //schedule_work(&(dev->uart_instance->work));
+             //schedule_work(&(dev->work));
+            //TX_EMPTY_Interrupt_Enable(dev->uart_instance);
+            //AXIUart_Data_Interrupt_Enable(dev->uart_instance);
+            XUartNs550_Send(dev->uart_instance, to_send_ptr, send_len);
+			//pr_info("XUartNs550_IntHandler After One Cycle Send \n");
+            
+            spin_lock_irqsave(&dev->tx_lock, flags);
+            // 更新尾部指针
+            dev->tx_tail = (dev->tx_tail + send_len) & (UART_BUFFER_SIZE - 1);
+            
+        } else {
+            // 缓冲区为空，禁用发送中断
+            //XUartNs550_DisableIntr(dev->uart_instance);
+            pr_info("User Buffer No Data to TX,stop interrupting \n");
+            //TX_EMPTY_Interrupt_Disable(dev->uart_instance);
+            AXIUart_Data_Interrupt_Disable(dev->uart_instance);
+            send_len=0;
+            /*
+			IerRegister = XUartNs550_ReadReg(dev->uart_instance->BaseAddress,
+							XUN_IER_OFFSET);
+			XUartNs550_WriteReg(dev->uart_instance->BaseAddress, XUN_IER_OFFSET,
+				 IerRegister & ~XUN_IER_TX_EMPTY);
+            */
+        }
+
+    spin_unlock_irqrestore(&dev->tx_lock, flags);
+        
     // 唤醒发送中断处理程序，开始发送数据
     // 在这里，我们不直接发送数据，而是确保TX中断已启用,让中断来处理，这是最佳实践
 	//pr_info("AXIUart TX_EMPTY Interrupt Enable \n");
+    //TX_EMPTY_Interrupt_Enable(dev->uart_instance);
+    /*
 	IerRegister = XUartNs550_ReadReg(dev->uart_instance->BaseAddress,XUN_IER_OFFSET);
 	//if (IerRegister & XUN_IER_RX_DATA) 
 	{
 		XUartNs550_WriteReg(dev->uart_instance->BaseAddress, XUN_IER_OFFSET,
 				 IerRegister | XUN_IER_TX_EMPTY);
 	}
-    
+    */
 	//pr_info("AXIUart_write end\n");
-    return written;
+    return send_len;
 }
 
 /*
@@ -302,16 +495,8 @@ static struct file_operations AXIUart_fops = {
 void XUartNs550_IntHandler(void *CallBackRef, u32 Event, unsigned int EventData) {
 
 	struct uart_dev *dev = (struct uart_dev *)CallBackRef;
-    u8 ReceivedBytePtr[7];
-	u8 ByteToSendPtr[10];
-	u8 ReceivedByte,ByteToSend;
-    unsigned long flags;
-	u8 Errors;
-	int i;
-	int buff_count=0;
-	size_t data_cnt;
-	u32 IerRegister;
 	int TotalReceivedCount=0;
+    u8 Errors;
 /*
 *
 */
@@ -325,31 +510,6 @@ void XUartNs550_IntHandler(void *CallBackRef, u32 Event, unsigned int EventData)
 	 * All of the data has been sent.
 	 */
 	if (Event == XUN_EVENT_SENT_DATA) {
-		spin_lock_irqsave(&dev->tx_lock, flags);
-        data_cnt = CIRC_CNT(dev->tx_head, dev->tx_tail, UART_BUFFER_SIZE);
-        if (data_cnt > 0) {
-            // 从缓冲区取10个字节或剩余所有字节
-            u8 *to_send_ptr = &dev->tx_buffer[dev->tx_tail];
-            size_t send_len = min_t(size_t, 10, data_cnt);
-            spin_unlock_irqrestore(&dev->tx_lock, flags);
-			
-			//pr_info("XUartNs550_IntHandler Before One Cycle Send \n");
-            XUartNs550_Send(dev->uart_instance, to_send_ptr, send_len);
-			//pr_info("XUartNs550_IntHandler After One Cycle Send \n");
-			
-            spin_lock_irqsave(&dev->tx_lock, flags);
-            // 更新尾部指针
-            dev->tx_tail = (dev->tx_tail + send_len) & (UART_BUFFER_SIZE - 1);
-        } else {
-            // 缓冲区为空，禁用发送中断
-            //XUartNs550_DisableIntr(dev->uart_instance);
-			IerRegister = XUartNs550_ReadReg(dev->uart_instance->BaseAddress,
-							XUN_IER_OFFSET);
-			XUartNs550_WriteReg(dev->uart_instance->BaseAddress, XUN_IER_OFFSET,
-				 IerRegister & ~XUN_IER_TX_EMPTY);
-        }
-        spin_unlock_irqrestore(&dev->tx_lock, flags);
-        
         wake_up_interruptible(&dev->tx_wait_queue); // 唤醒等待写入的进程
 	}
 
@@ -359,39 +519,6 @@ void XUartNs550_IntHandler(void *CallBackRef, u32 Event, unsigned int EventData)
 	if (Event == XUN_EVENT_RECV_DATA) {
 		TotalReceivedCount  +=  EventData;
 		// 在访问共享缓冲区之前加锁
-        
-		// 判断接收器和/或 FIFO 中是否有接收数据，如果有则循环读取所有可用字节直到没有
-		while (XUartNs550_IsReceiveData(dev->uart_instance))  
-       {	
-			spin_lock_irqsave(&dev->rx_lock, flags);
-			buff_count=CIRC_SPACE(dev->rx_head, dev->rx_tail, UART_BUFFER_SIZE) ;
-			// 释放锁
-			spin_unlock_irqrestore(&dev->rx_lock, flags);
-            // 检查接收缓冲区是否已满
-            if (buff_count== 0) {
-                // 缓冲区已满，丢弃数据或记录溢出错误
-				XUartNs550_Recv(dev->uart_instance, &ReceivedByte, 1); // 必须读取以清空FIFO
-                //printk(KERN_WARNING "AXIUart: RX buffer overflow, data dropped.\n");
-                break;
-            }
-            // 从UART硬件读取7个字节
-			//pr_info("XUartNs550_IntHandler Before One Cycle Rec \n");
-            XUartNs550_Recv(dev->uart_instance, ReceivedBytePtr, 7);
-			//XUartNs550_Recv(dev->uart_instance, &ReceivedByte, 1);
-			//pr_info("XUartNs550_IntHandler After One Cycle Rec \n");
-
-			// 将字节存入内核环形缓冲区
-			spin_lock_irqsave(&dev->rx_lock, flags);
-			for(i=0;i<7;i++)
-			{	
-				dev->rx_buffer[dev->rx_head+i] = ReceivedBytePtr[i];
-			} 
-			dev->rx_head = (dev->rx_head + 7) & (UART_BUFFER_SIZE - 1);
-            //dev->rx_buffer[dev->rx_head] = ReceivedByte;
-            //dev->rx_head = (dev->rx_head + 1) & (UART_BUFFER_SIZE - 1);
-			spin_unlock_irqrestore(&dev->rx_lock, flags);
-        }
-
        
         // 如果接收缓冲区变空，唤醒所有在等待读取的进程
         wake_up_interruptible(&dev->rx_wait_queue);
@@ -403,9 +530,8 @@ void XUartNs550_IntHandler(void *CallBackRef, u32 Event, unsigned int EventData)
 	 */
 	if (Event == XUN_EVENT_RECV_TIMEOUT)
 	{
-			IerRegister = XUartNs550_ReadReg(dev->uart_instance->BaseAddress,XUN_IER_OFFSET);
-			XUartNs550_WriteReg(dev->uart_instance->BaseAddress, XUN_IER_OFFSET,
-				 IerRegister & ~XUN_IER_RX_DATA);
+            RX_TimeOut_Interrupt_Disable(dev->uart_instance);
+            printk(KERN_WARNING "AXIUart: Received Data with timeout\n");
 	}
 
 	/*
@@ -487,6 +613,12 @@ int  AXIUart_cdev_init(void) {
     XUartNs550_SetHandler(AXIUart_dev.uart_instance, XUartNs550_IntHandler,&AXIUart_dev);
 	Options = XUN_OPTION_FIFOS_ENABLE;//XUN_OPTION_DATA_INTR |
 	XUartNs550_SetOptions(AXIUart_dev.uart_instance, Options); 
+//======================================add by ycf 2025.9.20=============================================
+    /*
+	pr_err("INIT_WORK AXIUart interrupt half bottom service");
+	INIT_WORK(&AXIUart_dev.work,uart_half_bottom_service_work);
+    */
+//======================================add by ycf 2025.9.20=============================================
 
 	//instance++;
 
@@ -509,7 +641,6 @@ void  AXIUart_cdev_exit(void) {
     // ... 1. 注销中断
     //xdma_user_isr_unregister(xpdev->pdev, 0);
 	printk(KERN_INFO "AXIUart: Exiting driver module\n");
-
 	device_destroy(es_cdevPtr->cdev_class, AXIUart_dev.dev_num);
     // ... 2. 注销字符设备
     cdev_del(&AXIUart_dev.cdev);//从内核中删除 cdev 结构体，解除内核与驱动程序的关联。

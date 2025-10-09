@@ -310,6 +310,7 @@ typedef struct {
 	u8 *NextBytePtr;
 	unsigned int RequestedBytes;
 	unsigned int RemainingBytes;
+	spinlock_t XUartNs550_buffer_lock; // 发送锁
 } XUartNs550Buffer;
 
 /**
@@ -377,6 +378,8 @@ typedef struct {
 
 	XUartNs550_Handler Handler; /**< Call back handler */
 	void *CallBackRef;	/* Callback reference for control handler */
+
+	spinlock_t XUartNs550_lock; 
 } XUartNs550;
 
 /***************** Macros (Inline Functions) Definitions ********************/

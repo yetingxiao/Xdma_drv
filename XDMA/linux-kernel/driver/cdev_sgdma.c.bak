@@ -48,6 +48,7 @@ extern struct kmem_cache *cdev_cache;
 static void char_sgdma_unmap_user_buf(struct xdma_io_cb *cb, bool write);
 
 
+
 static void async_io_handler(unsigned long  cb_hndl, int err)
 {
 	struct xdma_cdev *xcdev;
@@ -198,6 +199,16 @@ static loff_t char_sgdma_llseek(struct file *file, loff_t off, int whence)
  * For each transfer, get the user pages, build a sglist, map, build a
  * descriptor table. submit the transfer. wait for the interrupt handler
  * to wake us on completion.
+ * 从设备读取或写入
+* @buf 用户空间缓冲区
+* @count 用户空间缓冲区中的字节数
+* @pos 设备中的字节地址
+* @dir_to_device 如果为 !0，则执行写入设备的操作
+*
+* 遍历用户空间缓冲区，每次 DMA 传输最多占用 255 * PAGE_SIZE 个字节。
+*
+* 对于每次传输，获取用户页面，构建 sglist，进行映射，构建描述符表。
+* 提交传输,等待中断处理程序完成时唤醒我们。
  */
 
 static int check_transfer_align(struct xdma_engine *engine,
@@ -253,6 +264,7 @@ static int check_transfer_align(struct xdma_engine *engine,
 /*
  * Map a user memory range into a scatterlist
  * Returns the number of scatterlist entries used or -errno on error.
+ * * 将用户内存范围映射到散点列表中,返回已使用的散点列表条目数，或出错时返回 -errno。
  */
 static inline void xdma_io_cb_release(struct xdma_io_cb *cb)
 {
@@ -291,13 +303,48 @@ static void char_sgdma_unmap_user_buf(struct xdma_io_cb *cb, bool write)
 	kfree(cb->pages);
 	cb->pages = NULL;
 }
+/*
+这是把用户空间内存缓冲区映射到内核空间并生成一个**Scatter-Gather List (SGL)**的过程。映射流程与作用主要目的是为直接内存访问 (DMA) 操作准备数据。函数就像是用户应用和 DMA 硬件之间的翻译官。
+它将用户提供的逻辑缓冲区，转换成 DMA 硬件能够理解的、由物理地址和长度组成的列表（SGL），并确保内存状态正确（已固定且缓存一致），从而实现安全高效的 DMA 传输。
+DMA允许设备直接读写系统内存，而不需要CPU的干预，从而提高效率。然而，设备通常不能直接访问应用程序的用户空间内存。
+因此需要将用户缓冲区映射到内核地址，并将其组织成一个分散-收集列表 (SGL)，以便DMA控制器可以有效地访问它。
 
+这个函数是一个关键的驱动程序组件，它负责将用户空间的内存缓冲区转换为 DMA 控制器可以理解的散列-聚集列表（SGL）。这个过程至关重要，因为用户空间的缓冲区在物理内存中通常是分散且不连续的，而 DMA 需要连续的物理地址才能工作。
+
+1、计算页数和分配 sg_table
+
+首先计算用户缓冲区（cb->buf）跨越了多少个物理内存页（pages_nr）。这个计算会考虑到缓冲区可能并非从页的起始地址开始。接着，它调用 sg_alloc_table 来分配 sg_table 结构体。这个结构体是 SGL 的头部，用于管理所有分散的内存块。
+
+2、固定用户页（Pinning Pages）
+
+kcalloc 分配一个 struct page * 数组，用于存储内核对每个物理页的描述符。核心步骤是 get_user_pages_fast。这是一个底层的内核函数，它会“固定”用户空间的内存页。
+所谓“固定”，就是告诉操作系统：在 DMA 传输完成前，禁止将这些物理页换出到磁盘或移动到其他位置。这是 DMA 操作的必要前提，因为它依赖于固定的物理地址。
+函数还会检查是否成功固定了所有所需的页，如果失败，则跳转到错误处理流程。
+
+3、构建散列-聚集列表
+
+一个 for 循环遍历每一个已固定的物理页。在循环内部，它计算出缓冲区在当前页内的偏移量（offset_in_page）和数据长度（nbytes）。
+
+flush_dcache_page 函数确保 CPU 缓存中与该页相关的数据被写回到主内存。这被称为缓存一致性，以确保 DMA 引擎能够读取到最新的数据。
+
+sg_set_page 是构建 SGL 的关键函数。它将每个 scatterlist 元素与一个特定的物理页、数据长度以及页内偏移量关联起来。
+
+4、错误处理和清理
+
+如果循环结束时，用户缓冲区仍有未映射的部分（len 不为零），则说明缓冲区无效，函数返回错误。
+
+如果任何步骤失败，代码会跳转到 err_out 标签。这里的 char_sgdma_unmap_user_buf 函数会进行清理，释放已分配的内存，并**“解固定”**之前锁定的页，以便操作系统重新管理这些内存。
+*/
 static int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write)
 {
-	struct sg_table *sgt = &cb->sgt;
+	struct sg_table *sgt = &cb->sgt;//用来管理 scatterlist 数组的结构。
 	unsigned long len = cb->len;
 	void __user *buf = cb->buf;
-	struct scatterlist *sg;
+	/*
+	scatterlist 数组中的每个元素都代表内存中的一个不连续的块。
+	但这些段可以被DMA控制器作为一个连续的逻辑块来处理。这使得DMA能够高效地传输非连续的物理内存块，这是SGL设计的核心目的。
+	*/
+	struct scatterlist *sg;//
 	unsigned int pages_nr = (((unsigned long)buf + len + PAGE_SIZE - 1) -
 				 ((unsigned long)buf & PAGE_MASK))
 				>> PAGE_SHIFT;
@@ -307,7 +354,7 @@ static int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write)
 	if (pages_nr == 0)
 		return -EINVAL;
 
-	if (sg_alloc_table(sgt, pages_nr, GFP_KERNEL)) {
+	if (sg_alloc_table(sgt, pages_nr, GFP_KERNEL)) {//为 SGL 分配一个 sg_table
 		pr_err("sgl OOM.\n");
 		return -ENOMEM;
 	}
@@ -318,7 +365,10 @@ static int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write)
 		rv = -ENOMEM;
 		goto err_out;
 	}
-
+/*	核心步骤
+它将用户空间的虚拟地址 (buf) 转换为内核空间的 struct page 描述符，并“固定”这些页。
+固定页 (pinning pages) 确保这些物理页不会被操作系统换出到磁盘上，这对于DMA操作是至关重要的。
+*/
 	rv = get_user_pages_fast((unsigned long)buf, pages_nr, 1/* write */,
 				cb->pages);
 	/* No pages were pinned */
@@ -347,12 +397,15 @@ static int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write)
 	}
 
 	sg = sgt->sgl;
-	for (i = 0; i < pages_nr; i++, sg = sg_next(sg)) {
+	for (i = 0; i < pages_nr; i++, sg = sg_next(sg)) {//代码遍历之前获取的每个页。
 		unsigned int offset = offset_in_page(buf);
 		unsigned int nbytes =
 			min_t(unsigned int, PAGE_SIZE - offset, len);
 
 		flush_dcache_page(cb->pages[i]);
+		/*构建 SGL 的关键函数，它将每个 scatterlist 元素与一个特定的物理页、数据长度以及页内偏移量关联起来。
+		函数将每个 struct page 描述符、页内的偏移量 (offset) 和数据长度 (nbytes) 关联到 SGL 中的一个 scatterlist 元素。
+		*/ 
 		sg_set_page(sg, cb->pages[i], nbytes, offset);
 
 		buf += nbytes;
@@ -408,12 +461,38 @@ static ssize_t char_sgdma_read_write(struct file *file, const char __user *buf,
 	memset(&cb, 0, sizeof(struct xdma_io_cb));
 	cb.buf = (char __user *)buf;
 	cb.len = count;
-	cb.ep_addr = (u64)*pos;
+	cb.ep_addr = (u64)*pos;//FPGA AXI地址
 	cb.write = write;
 	rv = char_sgdma_map_user_buf_to_sgl(&cb, write);
 	if (rv < 0)
 		return rv;
-
+/*
+* xdma_xfer_submit - 提交 DMA 操作数据（读写操作） 这是一个阻塞调用
+* @channel：通道号（< channel_max）
+* == channel_max 表示 libxdma 可以选择任何可用通道：q
+* @dir：DMA_FROM/TO_DEVICE
+* @offset：用于读取或写入的 DDR/BRAM 内存偏移量
+* @sg_tbl：数据缓冲区的分散/集中列表
+* @timeout：超时时间（毫秒），*当前忽略
+* 返回已传输的字节数，或如果发生错误，则返回 < 0
+ * ssize_t xdma_xfer_submit(void *dev_hndl, int channel, bool write, u64 ep_addr,struct sg_table *sgt, bool dma_mapped, int timeout_ms);
+ * 
+ * g_table 是一个标准的 Linux 内核数据结构，用于描述一个或多个内存段。代表了 DMA 传输中主机内存的源或目的地址,它解决了 DMA 传输的一个关键问题：如何处理不连续的物理内存。
+ * sg_table结构体通过一个 scatterlist 数组来描述这些分散的内存块。每个 scatterlist 元素都包含一个物理地址和长度，指向一个内存片段。
+ * 
+ * 	软件驱动：驱动程序遍历 sg_table 中的每个 scatterlist 元素。
+	构建描述符：对于每个内存片段，驱动程序都会创建一个单独的 DMA 描述符。这个描述符的源地址（或目的地址）被设置为 scatterlist 元素的物理地址。
+	硬件执行：DMA 控制器读取这些描述符，并依次执行。它会从第一个地址传输指定长度的数据，然后自动切换到下一个描述符指定的地址，继续传输，直到整个 sg_table 中的数据都被处理完毕。
+	这种方式允许驱动程序将一个大的、在虚拟内存中是连续的，但在物理内存中是分散的缓冲区，高效地传递给 DMA 引擎，而无需将其复制到一个大的连续物理缓冲区中，从而节省了内存并提高了性能。
+ 	用户空间到内核：在用户调用 read() 或 write() 函数时，Linux 内核会负责将用户空间传入的不连续的缓冲区，通过 get_user_pages() 等函数，将其转换为一系列物理页，并组织成 sg_table 结构体。
+	然后，这个 sg_table 就会作为参数传递给 xdma_xfer_submit 函数。
+*/
+/*
+一个完整的 DMA 描述符会包含以下信息：
+主机物理地址：来自 &cb.sgt。
+FPGA AXI 地址：来自 *pos。
+传输长度：来自 &cb.sgt 中每个scatterlist元素的长度 
+*/
 	res = xdma_xfer_submit(xdev, engine->channel, write, *pos, &cb.sgt,
 				0, write ? h2c_timeout * 1000 :
 					   c2h_timeout * 1000);
@@ -480,7 +559,7 @@ static ssize_t cdev_aio_write(struct kiocb *iocb, const struct iovec *io,
 
 		caio->cb[i].buf = io[i].iov_base;
 		caio->cb[i].len = io[i].iov_len;
-		caio->cb[i].ep_addr = (u64)pos;
+		caio->cb[i].ep_addr = (u64)pos;//FPGA AXI地址
 		caio->cb[i].write = true;
 		caio->cb[i].private = caio;
 		caio->cb[i].io_done = async_io_handler;
@@ -495,7 +574,7 @@ static ssize_t cdev_aio_write(struct kiocb *iocb, const struct iovec *io,
 		rv = char_sgdma_map_user_buf_to_sgl(&caio->cb[i], true);
 		if (rv < 0)
 			return rv;
-
+//aio nowait
 		rv = xdma_xfer_submit_nowait((void *)&caio->cb[i], xdev,
 					engine->channel, caio->cb[i].write,
 					caio->cb[i].ep_addr, &caio->cb[i].sgt,
@@ -553,7 +632,7 @@ static ssize_t cdev_aio_read(struct kiocb *iocb, const struct iovec *io,
 
 		caio->cb[i].buf = io[i].iov_base;
 		caio->cb[i].len = io[i].iov_len;
-		caio->cb[i].ep_addr = (u64)pos;
+		caio->cb[i].ep_addr = (u64)pos;//FPGA AXI地址
 		caio->cb[i].write = false;
 		caio->cb[i].private = caio;
 		caio->cb[i].io_done = async_io_handler;
@@ -569,7 +648,7 @@ static ssize_t cdev_aio_read(struct kiocb *iocb, const struct iovec *io,
 		rv = char_sgdma_map_user_buf_to_sgl(&caio->cb[i], true);
 		if (rv < 0)
 			return rv;
-
+//aio nowait
 		rv = xdma_xfer_submit_nowait((void *)&caio->cb[i], xdev,
 					engine->channel, caio->cb[i].write,
 					caio->cb[i].ep_addr, &caio->cb[i].sgt,
@@ -907,9 +986,10 @@ static int char_sgdma_open(struct inode *inode, struct file *file)
 
 		engine->eop_flush = (file->f_flags & O_TRUNC) ? 1 : 0;
 	}
-
+	
 	return 0;
 }
+
 
 static int char_sgdma_close(struct inode *inode, struct file *file)
 {

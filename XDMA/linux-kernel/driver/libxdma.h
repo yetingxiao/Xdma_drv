@@ -228,7 +228,7 @@ struct xdma_channel_addr {
 #define WB_ERR_MASK (1UL << 31)
 #define POLL_TIMEOUT_SECONDS 10
 
-#define MAX_USER_IRQ 4
+#define MAX_USER_IRQ 1
 
 #define MAX_DESC_BUS_ADDR (0xffffffffULL)
 
@@ -410,7 +410,14 @@ struct config_regs {
 	u32 msi_enable;
 };
 
-/**
+/**SG DMA 控制器状态和控制寄存器
+*
+* 这些寄存器构成了 DMA 传输的控制接口。
+*
+* 它位于端点 (FPGA) 存储器 BAR[0]（32 位）或 BAR[0:1]（64 位）中。
+* 它引用根复合体 (PC) 存储器中的第一个描述符。
+*
+* @注意：这些寄存器必须使用 32 位 (PCI DWORD) 读/写操作进行访问，并且它们的值采用小端字节顺序。
  * SG DMA Controller status and control registers
  *
  * These registers make the control interface for DMA transfers.

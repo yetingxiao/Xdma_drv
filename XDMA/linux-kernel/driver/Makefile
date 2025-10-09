@@ -71,7 +71,7 @@ UART_OBJS = xil_assert.o \
 			xparameters.o
             # ... 其他 .o 文件
 
-TARGET_MODULE:=xdma
+TARGET_MODULE:=vi53xx
 ############## remove by ycf
 #TARGET_MODULE:=vi53xx
 ####################### add by ycf

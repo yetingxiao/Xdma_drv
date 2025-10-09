@@ -685,11 +685,11 @@ void xpdev_destroy_interfaces(struct xdma_pci_dev *xpdev)
 			pr_err("Failed to destroy xvc cdev %d error 0x%x\n",
 				i, rv);
 	}
-
+	
 	if (xpdev_flag_test(xpdev, XDF_CDEV_BYPASS)) {
-		/* iterate over channels */
+		//iterate over channels 
 		for (i = 0; i < xpdev->h2c_channel_max; i++) {
-			/* remove DMA Bypass character device */
+			//remove DMA Bypass character device 
 			rv = destroy_xcdev(&xpdev->bypass_h2c_cdev[i]);
 			if (rv < 0)
 				pr_err("Failed to destroy bypass h2c cdev %d error 0x%x\n",
@@ -705,6 +705,7 @@ void xpdev_destroy_interfaces(struct xdma_pci_dev *xpdev)
 		if (rv < 0)
 			pr_err("Failed to destroy base cdev\n");
 	}
+	
 //======================================add by ycf 2025.8.12=============================================
 	if (xpdev_flag_test(xpdev, XDF_CDEV_CHAR_CTRL)) {
 		vi53xx_dev_clean(xpdev);//destroy_xcdev
@@ -726,7 +727,7 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev)
 
 	/* initialize control character device */
 	
-
+	/*
 	rv = create_xcdev(xpdev, &xpdev->ctrl_cdev, xdev->config_bar_idx,
 			NULL, CHAR_CTRL);
 	if (rv < 0) {
@@ -734,7 +735,7 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev)
 		goto fail;
 	}
 	xpdev_flag_set(xpdev, XDF_CDEV_CTRL);
-
+	*/
 	
 	/* initialize events character device */
 	
@@ -751,6 +752,7 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev)
 	*/
 
 	/* iterate over channels */
+	/*
 	for (i = 0; i < xpdev->h2c_channel_max; i++) {
 		engine = &xdev->engine_h2c[i];
 
@@ -778,7 +780,9 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev)
 			goto fail;
 		}
 	}
+	
 	xpdev_flag_set(xpdev, XDF_CDEV_SG);
+	*/
 
 	/* Initialize Bypass Character Device */
 	/*
@@ -825,6 +829,7 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev)
 
 	*/
 	/* initialize user character device */
+	/*
 	if (xdev->user_bar_idx >= 0) {
 		
 		rv = create_xcdev(xpdev, &xpdev->user_cdev, xdev->user_bar_idx,
@@ -835,7 +840,7 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev)
 		}
 		xpdev_flag_set(xpdev, XDF_CDEV_USER);
 
-		/* xvc */
+		//xvc 
 		rv = create_xcdev(xpdev, &xpdev->xvc_cdev, xdev->user_bar_idx,
 				 NULL, CHAR_XVC);
 		if (rv < 0) {
@@ -844,6 +849,7 @@ int xpdev_create_interfaces(struct xdma_pci_dev *xpdev)
 		}
 		xpdev_flag_set(xpdev, XDF_CDEV_XVC);
 	}
+	*/
 //======================================add by ycf 2025.8.12=============================================
 	if (vi53xx_dev_init(xpdev) < 0) {
 	    rv = -EINVAL;

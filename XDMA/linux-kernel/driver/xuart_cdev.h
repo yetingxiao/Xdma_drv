@@ -17,8 +17,8 @@
 struct uart_dev {
     struct cdev cdev;
     dev_t dev_num;
-    char rx_buffer[UART_BUFFER_SIZE];
-    char tx_buffer[UART_BUFFER_SIZE];
+    int8_t rx_buffer[UART_BUFFER_SIZE];
+    int8_t tx_buffer[UART_BUFFER_SIZE];
     int16_t rx_head, rx_tail;
 	int16_t tx_head, tx_tail;
     wait_queue_head_t rx_wait_queue;
@@ -26,9 +26,16 @@ struct uart_dev {
 	XUartNs550 *uart_instance; // 指向UART实例的指针
 	spinlock_t rx_lock; // 接收锁
 	spinlock_t tx_lock; // 发送锁
+//======================================add by ycf 2025.9.20=============================================
+	//struct work_struct work;
+//======================================add by ycf 2025.9.20=============================================
 };
 extern 	int 	AXIUart_cdev_init(void);
 extern 	void 	AXIUart_cdev_exit(void);
 extern XUartNs550 UartNs550Instance;	
 extern struct uart_dev AXIUart_dev;
+
+//======================================add by ycf 2025.9.20=============================================
+//extern void uart_half_bottom_service_work(struct work_struct *work);
+//======================================add by ycf 2025.9.20=============================================
 #endif

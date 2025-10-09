@@ -60,6 +60,9 @@ static void ReceiveDataHandler(XUartNs550 *InstancePtr);
 static void SendDataHandler(XUartNs550 *InstancePtr);
 static void ModemHandler(XUartNs550 *InstancePtr);
 
+void uart_irq_save(XUartNs550 *InstancePtr,u32 * flags);
+void uart_irq_restore(XUartNs550 *InstancePtr,u32 * flags);
+
 /************************** Variable Definitions ****************************/
 
 typedef void (*Handler)(XUartNs550 *InstancePtr);
@@ -104,6 +107,22 @@ static Handler HandlerTable[13] = {
 * is (nor should it)
 *
 *****************************************************************************/
+
+void uart_irq_save(XUartNs550 *InstancePtr,u32 * flags)
+{
+	u32 IerRegister;
+	IerRegister = XUartNs550_ReadReg(InstancePtr->BaseAddress,
+						XUN_IER_OFFSET);
+	*flags=IerRegister;
+}
+
+void uart_irq_restore(XUartNs550 *InstancePtr,u32 * flags)
+{
+	XUartNs550_WriteReg(InstancePtr->BaseAddress,
+						XUN_IER_OFFSET,
+						* flags);
+}
+
 void XUartNs550_SetHandler(XUartNs550 *InstancePtr,
 				XUartNs550_Handler FuncPtr, void *CallBackRef)
 {
@@ -150,7 +169,6 @@ void XUartNs550_InterruptHandler(XUartNs550 *InstancePtr)
 	IsrStatus = (u8)XUartNs550_ReadReg(InstancePtr->BaseAddress,
 					XUN_IIR_OFFSET) &
 					XUN_INT_ID_MASK;
-
 	/*
 	 * Make sure the handler table has a handler defined for the interrupt
 	 * that is active, and then call the handler
@@ -164,7 +182,25 @@ irqreturn_t XUartNs550_KernelIntHandlerEntry (int irq, void *dev_id)
 {
 	//pr_info("User IRQ handler \n");
 	//XUartNs550 *UartInstancePtr =(XUartNs550 *)dev_id;
+	/*
+	 *The other function called enables the
+	 * tranmit interrupt such that this function can't restore a value to
+	 * the interrupt enable register and does not need to exit the critical
+	 * region
+	 */
+
+	u32 	uart_flags;
+	//unsigned long flags;
+	XUartNs550 *InstancePtr=(XUartNs550 *)dev_id;
+
+	//spin_lock_irqsave(&InstancePtr->XUartNs550_lock, flags);
+	//uart_irq_save(InstancePtr,&uart_flags);
+
 	XUartNs550_InterruptHandler((XUartNs550 *)dev_id);
+
+	//uart_irq_restore(InstancePtr,&uart_flags);
+	//spin_unlock_irqrestore(&InstancePtr->XUartNs550_lock, flags);	
+
 	//return IRQ_HANDLED;
 }
 //======================================add by ycf 2025.8.8=============================================
@@ -189,7 +225,9 @@ irqreturn_t XUartNs550_KernelIntHandlerEntry (int irq, void *dev_id)
 static void NoInterruptHandler(XUartNs550 *InstancePtr)
 {
 	volatile u32 LsrRegister;
-
+	pr_info("NoInterruptHandler\n");
+	unsigned long flags;
+	//spin_lock_irqsave(&InstancePtr->XUartNs550_lock, flags);
 	/*
 	 * Reading the ID register clears the currently asserted interrupts
 	 */
@@ -199,6 +237,7 @@ static void NoInterruptHandler(XUartNs550 *InstancePtr)
 	 * Update the stats to reflect any errors that might be read
 	 */
 	XUartNs550_UpdateStats(InstancePtr, (u8)LsrRegister);
+	//spin_unlock_irqrestore(&InstancePtr->XUartNs550_lock, flags);	
 }
 
 /****************************************************************************/
@@ -221,12 +260,17 @@ static void NoInterruptHandler(XUartNs550 *InstancePtr)
 static void ReceiveStatusHandler(XUartNs550 *InstancePtr)
 {
 	u32 LsrRegister;
-
+	unsigned long flags;
+	pr_info("ReceiveStatusHandler\n");
 	/*
 	 * If there are bytes still to be received in the specified buffer
 	 * go ahead and receive them
 	 */
-	if (InstancePtr->ReceiveBuffer.RemainingBytes != 0) {
+	//spin_lock_irqsave(&InstancePtr->ReceiveBuffer.XUartNs550_buffer_lock, flags);
+	u32 tmp=InstancePtr->ReceiveBuffer.RemainingBytes;
+	//spin_unlock_irqrestore(&InstancePtr->ReceiveBuffer.XUartNs550_buffer_lock, flags);
+
+	if (tmp != 0) {
 		XUartNs550_ReceiveBuffer(InstancePtr);
 	} else {
 		/*
@@ -234,9 +278,11 @@ static void ReceiveStatusHandler(XUartNs550 *InstancePtr)
 		 * interrupts and this must be done since there was no data
 		 * to receive, update the status for the status read
 		 */
+		//spin_lock_irqsave(&InstancePtr->XUartNs550_lock, flags);
 		LsrRegister =
 			XUartNs550_GetLineStatusReg(InstancePtr->BaseAddress);
 		XUartNs550_UpdateStats(InstancePtr, (u8)LsrRegister);
+		//spin_unlock_irqrestore(&InstancePtr->XUartNs550_lock, flags);	
 	}
 
 	/*
@@ -271,12 +317,17 @@ static void ReceiveStatusHandler(XUartNs550 *InstancePtr)
 static void ReceiveTimeoutHandler(XUartNs550 *InstancePtr)
 {
 	u32 Event;
-
+	pr_info("ReceiveTimeoutHandler\n");
+	unsigned long flags;
 	/*
 	 * If there are bytes still to be received in the specified buffer
 	 * go ahead and receive them
 	 */
-	if (InstancePtr->ReceiveBuffer.RemainingBytes != 0) {
+	//spin_lock_irqsave(&InstancePtr->ReceiveBuffer.XUartNs550_buffer_lock, flags);
+	u32 tmp=InstancePtr->ReceiveBuffer.RemainingBytes;
+	//spin_unlock_irqrestore(&InstancePtr->ReceiveBuffer.XUartNs550_buffer_lock, flags);
+	
+	if (tmp != 0) {
 		XUartNs550_ReceiveBuffer(InstancePtr);
 	}
 
@@ -322,12 +373,17 @@ static void ReceiveTimeoutHandler(XUartNs550 *InstancePtr)
 static void ReceiveDataHandler(XUartNs550 *InstancePtr)
 {
 	u32 Event;
-
+	pr_info("ReceiveDataHandler\n");
+	unsigned long flags;
 	/*
 	 * If there are bytes still to be received in the specified buffer
 	 * go ahead and receive them
 	 */
-	if (InstancePtr->ReceiveBuffer.RemainingBytes != 0) {
+	spin_lock_irqsave(&InstancePtr->ReceiveBuffer.XUartNs550_buffer_lock, flags);
+	unsigned int tmp=InstancePtr->ReceiveBuffer.RemainingBytes;
+	spin_unlock_irqrestore(&InstancePtr->ReceiveBuffer.XUartNs550_buffer_lock, flags);
+
+	if (tmp != 0) {
 		XUartNs550_ReceiveBuffer(InstancePtr);
 	}
 
@@ -382,17 +438,30 @@ static void ReceiveDataHandler(XUartNs550 *InstancePtr)
 static void SendDataHandler(XUartNs550 *InstancePtr)
 {
 	u32 IerRegister;
-
+	//pr_info("SendDataHandler\n");
 	/*
 	 * If there are not bytes to be sent from the specified buffer then
 	 * disable the transmit interrupt so it will stop interrupting as it
 	 * interrupts any time the FIFO is empty
 	 */
-	if (InstancePtr->SendBuffer.RemainingBytes == 0) {
+	unsigned long flags;
+	/*
+	 * If there are bytes still to be received in the specified buffer
+	 * go ahead and receive them
+	 */
+	//spin_lock_irqsave(&InstancePtr->SendBuffer.XUartNs550_buffer_lock, flags);
+	unsigned int RemainingBytes=InstancePtr->SendBuffer.RemainingBytes;
+	//spin_unlock_irqrestore(&InstancePtr->SendBuffer.XUartNs550_buffer_lock, flags);
+
+	if (RemainingBytes == 0) {
+		//spin_lock_irqsave(&InstancePtr->XUartNs550_lock, flags);
+
 		IerRegister = XUartNs550_ReadReg(InstancePtr->BaseAddress,
 							XUN_IER_OFFSET);
 		XUartNs550_WriteReg(InstancePtr->BaseAddress, XUN_IER_OFFSET,
 				 IerRegister & ~XUN_IER_TX_EMPTY);
+		//pr_info("SendDataHandler Uart Buffer No More Data to Send,so stop interrupting \n");
+		//spin_unlock_irqrestore(&InstancePtr->XUartNs550_lock, flags);	
 
 		/*
 		 * Call the application handler to indicate the data
@@ -409,7 +478,11 @@ static void SendDataHandler(XUartNs550 *InstancePtr)
 	 * so go ahead and send it
 	 */
 	else {
+//======================================add by ycf 2025.9.20=============================================
 		XUartNs550_SendBuffer(InstancePtr);
+		//pr_info("SendDataHandler Uart Buffer Have More Data to Send\n");
+		//schedule_work(&InstancePtr->work);//INIT_WORK(&InstancePtr->work,uart_service_work);
+//======================================add by ycf 2025.9.20=============================================
 	}
 
 	/*
@@ -434,7 +507,7 @@ static void SendDataHandler(XUartNs550 *InstancePtr)
 static void ModemHandler(XUartNs550 *InstancePtr)
 {
 	u32 MsrRegister;
-
+	pr_info("ModemHandler\n");
 	/*
 	 * Read the modem status register so that the interrupt is acknowledged
 	 * and so that it can be passed to the callback handler with the event

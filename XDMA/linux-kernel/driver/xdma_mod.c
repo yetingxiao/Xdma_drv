@@ -286,7 +286,12 @@ static void xpdev_free(struct xdma_pci_dev *xpdev)
 	xpdev_destroy_interfaces(xpdev);
 	xpdev->xdev = NULL;
 	pr_info("xpdev 0x%p, xdev 0x%p xdma_device_close.\n", xpdev, xdev);
-	xdma_device_close(xpdev->pdev, xdev);
+//======================================add by ycf 2025.9.19=============================================	
+	if(0x16f3==xpdev->pdev->device)
+		xdma_device_close(xpdev->pdev, xdev);
+	else if(0x16f2==xpdev->pdev->device)
+		xdma_device_umap(xpdev->pdev, xdev);
+//======================================add by ycf 2025.9.19=============================================	
 	xpdev_cnt--;
 
 	kfree(xpdev);
@@ -330,13 +335,24 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
     dump_vi53xx_device_info(pdev);//pdev->device 0x16f2���ְ忨
 	//xdev = xdma_device_map(DRV_MODULE_NAME, pdev);���ܵ�ͬxdma_device_open
 //======================================add by ycf 2025.8.13=============================================
-	hndl = xdma_device_open(DRV_MODULE_NAME, pdev, &xpdev->user_max,&xpdev->h2c_channel_max, &xpdev->c2h_channel_max);
-	//hndl->fops = &rtpc_xdma_fops;
-	if (!hndl) {
-		pr_warn("xdma_device_open Failed!\n");
-		rv = -EINVAL;
-		goto err_out;
+	if(0x16f3==pdev->device){//0x16f3==pdev->device 代表es5311板卡
+		hndl = xdma_device_open(DRV_MODULE_NAME, pdev, &xpdev->user_max,&xpdev->h2c_channel_max, &xpdev->c2h_channel_max);
+		if (!hndl) {
+			pr_warn("xdma_device_open Failed!\n");
+			rv = -EINVAL;
+			goto err_out;
+		}
+	}else if((0x16f2==pdev->device))
+	{
+		hndl = xdma_device_map(DRV_MODULE_NAME, pdev);
+		if (!hndl) {
+			pr_warn("xdma_device_map Failed!\n");
+			rv = -EINVAL;
+			goto err_out;
+		}
 	}
+	//hndl->fops = &rtpc_xdma_fops;
+
 //======================================add by ycf 2025.8.13=============================================
 	xpdev->xdev = hndl;
     xpdev->dma_cfg[H2C_DIR] = ((struct xdma_dev *)hndl)->H2C_dma_cfg;
@@ -370,11 +386,16 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		pr_warn("NO engine found!\n");
 
 	/* make sure no duplicate */
-	xdev = xdev_find_by_pdev(pdev);
-	if (!xdev) {
-		pr_warn("NO xdev found!\n");
-		rv =  -EINVAL;
-		goto err_out;
+	if(0x16f3==pdev->device){
+		xdev = xdev_find_by_pdev(pdev);
+		if (!xdev) {
+			pr_warn("NO xdev found!\n");
+			rv =  -EINVAL;
+			goto err_out;
+		}
+	}else if((0x16f2==pdev->device))
+	{
+		xdev=hndl;
 	}
 
 	if (hndl != xdev) {
@@ -398,12 +419,13 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	
 	if (xpdev->user_max) {
 		u32 mask = (1 << (xpdev->user_max + 1)) - 1;
-		rv = xdma_user_isr_enable(hndl, mask);
-		if (rv)
-		{
-			pr_err("Failed to Enable user interrupt\n");
-			goto err_out;
-		}
+		if(0x16f3==pdev->device){//0x16f3==pdev->device 代表es5311板卡
+			rv = xdma_user_isr_enable(hndl, mask);
+			if (rv)
+			{
+				pr_err("Failed to Enable user interrupt\n");
+				goto err_out;
+			}
 		//======================================add by ycf 2025.8.4=============================================
 		/*
 		 * xdma_user_isr_register - register a user ISR handler
@@ -424,7 +446,7 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		 * return < 0 in case of error
 		 * TODO: exact error code will be defined later
 		 */
-		if(0x16f3==pdev->device){//0x16f3==pdev->device 代表es5311板卡
+		
 			pr_info("BAR%d mapped at 0x%p\n", 0,xdev->bar[0]);
 			UART_KERNEL_REGS=xdev->bar[0];
 			IS_KERNEL_MAPPED=1;
